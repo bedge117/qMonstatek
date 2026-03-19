@@ -100,6 +100,18 @@ Item {
                 }
             }
 
+            // Update source info
+            Label {
+                text: {
+                    var repo = githubChecker.repoUrl
+                    var suffix = (repo === "bedge117/M1") ? " (Default)" : ""
+                    return "Update source: " + repo + suffix + "  \u2014  Change in Settings"
+                }
+                font.pixelSize: 11
+                color: Material.hintTextColor
+                Layout.leftMargin: 24
+            }
+
             // Check for updates
             RowLayout {
                 Layout.leftMargin: 24
@@ -294,12 +306,21 @@ Item {
                         color: Material.accent
                     }
 
-                    Button {
-                        text: "Flash Downloaded Firmware"
-                        highlighted: true
+                    RowLayout {
                         visible: view.downloadedFilePath.length > 0 && !view.downloading
-                        enabled: m1device.connected && !view.flashing
-                        onClicked: downloadedConfirmDialog.open()
+                        spacing: 12
+
+                        Button {
+                            text: "Flash Downloaded Firmware"
+                            highlighted: true
+                            enabled: m1device.connected && !view.flashing
+                            onClicked: downloadedConfirmDialog.open()
+                        }
+
+                        Button {
+                            text: "Save to PC"
+                            onClicked: saveDialog.open()
+                        }
                     }
                 }
             }
@@ -350,6 +371,22 @@ Item {
             flashStatusLabel.color = Material.foreground
             view.flashStatus = ""
             m1device.startFwUpdate(view.selectedFilePath)
+        }
+    }
+
+    FileDialog {
+        id: saveDialog
+        title: "Save Firmware File"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["Binary files (*.bin)", "All files (*)"]
+        currentFile: {
+            var parts = view.downloadedFilePath.split(/[/\\]/)
+            var name = parts[parts.length - 1]
+            return "file:///" + name
+        }
+        onAccepted: {
+            var dest = selectedFile.toString().replace("file:///", "")
+            githubChecker.saveFileTo(view.downloadedFilePath, dest)
         }
     }
 

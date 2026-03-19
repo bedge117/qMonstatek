@@ -10,16 +10,34 @@
 #include <QFile>
 #include <QDebug>
 #include <QRegularExpression>
+#include <QSettings>
 
 GithubChecker::GithubChecker(QObject *parent)
     : QObject(parent)
 {
 }
 
+void GithubChecker::setPersistKey(const QString &key)
+{
+    m_persistKey = key;
+    if (!key.isEmpty()) {
+        QSettings settings;
+        QString saved = settings.value(key).toString();
+        if (!saved.isEmpty()) {
+            m_repoUrl = saved;
+            emit repoUrlChanged();
+        }
+    }
+}
+
 void GithubChecker::setRepoUrl(const QString &url)
 {
     if (m_repoUrl != url) {
         m_repoUrl = url;
+        if (!m_persistKey.isEmpty()) {
+            QSettings settings;
+            settings.setValue(m_persistKey, url);
+        }
         emit repoUrlChanged();
     }
 }
@@ -41,6 +59,18 @@ bool GithubChecker::parseVersionTag(const QString &tag,
         build = m.captured(3).toInt();
         rc    = m.captured(4).toInt();
         c3Rev = m.captured(5).isEmpty() ? 0 : m.captured(5).toInt();
+        return true;
+    }
+
+    // Try C3-only tag: C3.4, C3.1, etc.
+    static QRegularExpression reC3(
+        R"(C3\.(\d+))",
+        QRegularExpression::CaseInsensitiveOption);
+
+    m = reC3.match(tag);
+    if (m.hasMatch()) {
+        major = 0; minor = 8; build = 0; rc = 0;
+        c3Rev = m.captured(1).toInt();
         return true;
     }
 
@@ -193,6 +223,13 @@ void GithubChecker::onReleaseReply(QNetworkReply *reply)
                           .arg(curVerStr, relVerStr);
         emit noUpdateAvailable(msg);
     }
+}
+
+bool GithubChecker::saveFileTo(const QString &src, const QString &dest)
+{
+    if (QFile::exists(dest))
+        QFile::remove(dest);
+    return QFile::copy(src, dest);
 }
 
 void GithubChecker::downloadAsset(const QUrl &url, const QString &destPath)

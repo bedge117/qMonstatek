@@ -92,6 +92,7 @@ Item {
         }
 
         ColumnLayout {
+            id: updateSection
             Layout.alignment: Qt.AlignHCenter
             spacing: 8
 
@@ -105,9 +106,9 @@ Item {
                 enabled: !appUpdateChecker.checking
                 Layout.alignment: Qt.AlignHCenter
                 onClicked: {
-                    parent.updateStatus = ""
-                    parent.updateUrl = ""
-                    parent.latestVersion = ""
+                    updateSection.updateStatus = ""
+                    updateSection.updateUrl = ""
+                    updateSection.latestVersion = ""
                     var parts = Qt.application.version.split(".")
                     appUpdateChecker.checkForUpdates(
                         parseInt(parts[0]) || 0,
@@ -119,10 +120,15 @@ Item {
 
             Label {
                 id: statusLabel
-                visible: parent.updateStatus.length > 0
-                text: parent.updateStatus
+                visible: updateSection.updateStatus.length > 0
+                text: updateSection.updateStatus
                 font.pixelSize: 12
-                color: parent.updateUrl.length > 0 ? "#4CAF50" : Material.hintTextColor
+                color: {
+                    if (updateSection.updateUrl.length > 0) return "#4CAF50"
+                    if (updateSection.updateStatus.indexOf("Error") === 0) return "#F44336"
+                    if (updateSection.updateStatus.indexOf("Could not") === 0) return "#FF9800"
+                    return "#4CAF50"
+                }
                 Layout.alignment: Qt.AlignHCenter
                 wrapMode: Text.WordWrap
                 Layout.maximumWidth: 400
@@ -130,8 +136,8 @@ Item {
             }
 
             Label {
-                visible: parent.updateUrl.length > 0
-                text: "<a href=\"" + parent.updateUrl + "\" style=\"color:#2196F3;\">Download " + parent.latestVersion + "</a>"
+                visible: updateSection.updateUrl.length > 0
+                text: "<a href=\"" + updateSection.updateUrl + "\" style=\"color:#2196F3;\">Download " + updateSection.latestVersion + "</a>"
                 font.pixelSize: 12
                 Layout.alignment: Qt.AlignHCenter
                 onLinkActivated: function(link) { Qt.openUrlExternally(link) }
@@ -146,15 +152,19 @@ Item {
             Connections {
                 target: appUpdateChecker
                 function onReleaseFound(info) {
-                    parent.updateStatus = "New version available: " + info.version
-                    parent.updateUrl = info.htmlUrl
-                    parent.latestVersion = info.version
+                    updateSection.updateStatus = "New version available: " + info.versionFormatted
+                    updateSection.updateUrl = info.htmlUrl
+                    updateSection.latestVersion = info.versionFormatted
                 }
                 function onNoUpdateAvailable(message) {
-                    parent.updateStatus = "You're up to date (v" + Qt.application.version + ")"
+                    updateSection.updateStatus = "You are on the latest version (v" + Qt.application.version + ")"
                 }
                 function onCheckError(message) {
-                    parent.updateStatus = "Error: " + message
+                    if (message.indexOf("ContentNotFoundError") >= 0 || message.indexOf("404") >= 0) {
+                        updateSection.updateStatus = "Could not check for updates (no releases published)"
+                    } else {
+                        updateSection.updateStatus = "Error: " + message
+                    }
                 }
             }
         }

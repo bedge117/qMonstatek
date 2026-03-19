@@ -7,8 +7,13 @@ import QtQuick.Dialogs
 Item {
     id: view
 
+    property bool isActive: contentStack.currentIndex === viewIndex("swdRecovery")
     property string selectedFilePath: ""
     property string selectedFileName: ""
+    property string downloadedFilePath: ""
+    property bool downloading: false
+    property int downloadPercent: 0
+    property var releaseInfo: null
 
     // ── Signals ──
     Connections {
@@ -21,6 +26,35 @@ Item {
         }
         function onRunningChanged(running) {
             if (running) statusLabel.color = Material.foreground
+        }
+    }
+
+    // ── GitHub signals (guarded to this view only) ──
+    Connections {
+        target: githubChecker
+        enabled: view.isActive
+        function onReleaseFound(info) {
+            view.releaseInfo = info
+        }
+        function onNoUpdateAvailable(message) {
+            swdGhStatusLabel.text = "Latest release: " + message
+            swdGhStatusLabel.visible = true
+        }
+        function onCheckError(message) {
+            swdGhStatusLabel.text = "GitHub error: " + message
+            swdGhStatusLabel.color = "#F44336"
+            swdGhStatusLabel.visible = true
+        }
+        function onDownloadProgress(percent) {
+            view.downloadPercent = percent
+        }
+        function onDownloadComplete(filePath) {
+            view.downloading = false
+            view.downloadedFilePath = filePath
+            // Auto-select downloaded file for recovery
+            view.selectedFilePath = filePath
+            var parts = filePath.split(/[/\\]/)
+            view.selectedFileName = parts[parts.length - 1]
         }
     }
 
@@ -277,7 +311,7 @@ Item {
                     }
 
                     Label {
-                        text: "Select a firmware .bin file for Recovery Flash and Verify operations."
+                        text: "Select a local file or download from GitHub."
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                         font.pixelSize: 12
@@ -302,6 +336,124 @@ Item {
                                    : Material.hintTextColor
                             elide: Text.ElideMiddle
                             Layout.fillWidth: true
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: Material.dividerColor
+                    }
+
+                    // GitHub download
+                    RowLayout {
+                        spacing: 12
+
+                        Button {
+                            text: githubChecker.checking ? "Checking..." : "Download from GitHub"
+                            enabled: !githubChecker.checking && !view.downloading && !swdRecovery.running
+                            onClicked: {
+                                view.releaseInfo = null
+                                swdGhStatusLabel.visible = false
+                                swdGhStatusLabel.color = Material.hintTextColor
+                                githubChecker.checkForUpdates(0, 0, 0, 0, 0)
+                            }
+                        }
+
+                        Label {
+                            id: swdGhStatusLabel
+                            visible: false
+                            font.pixelSize: 12
+                            color: Material.hintTextColor
+                        }
+                    }
+
+                    // Download progress
+                    ProgressBar {
+                        visible: view.downloading
+                        Layout.fillWidth: true
+                        value: view.downloadPercent / 100.0
+                    }
+
+                    // Downloaded file indicator
+                    Label {
+                        visible: view.downloadedFilePath.length > 0 && !view.downloading
+                        text: "Downloaded: " + view.downloadedFilePath
+                        font.pixelSize: 12
+                        color: Material.accent
+                        elide: Text.ElideLeft
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+
+            // ── Release info card (from GitHub) ──
+            Pane {
+                visible: view.releaseInfo !== null
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                Material.elevation: 2
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 12
+
+                    Label {
+                        text: view.releaseInfo ? view.releaseInfo.name : ""
+                        font.pixelSize: 16
+                        font.bold: true
+                    }
+
+                    Label {
+                        text: view.releaseInfo
+                              ? "Version: " + view.releaseInfo.versionFormatted
+                              : ""
+                        color: Material.accent
+                    }
+
+                    Label {
+                        text: view.releaseInfo ? view.releaseInfo.publishedAt : ""
+                        font.pixelSize: 11
+                        color: Material.hintTextColor
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: Material.dividerColor
+                    }
+
+                    Label {
+                        text: "Assets"
+                        font.bold: true
+                    }
+
+                    Repeater {
+                        model: view.releaseInfo ? view.releaseInfo.assets : []
+                        delegate: RowLayout {
+                            Layout.fillWidth: true
+
+                            Label {
+                                text: modelData.name
+                                font.pixelSize: 12
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                text: (modelData.size / 1024).toFixed(0) + " KB"
+                                font.pixelSize: 11
+                                color: Material.hintTextColor
+                            }
+                            Button {
+                                text: "Download"
+                                enabled: !view.downloading
+                                font.pixelSize: 11
+                                onClicked: {
+                                    view.downloading = true
+                                    view.downloadedFilePath = ""
+                                    githubChecker.downloadAsset(modelData.downloadUrl, modelData.name)
+                                }
+                            }
                         }
                     }
                 }

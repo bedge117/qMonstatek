@@ -495,6 +495,34 @@ void M1Device::startEspUpdate(const QString &binFilePath, uint32_t flashAddr)
         return;
     }
 
+    // Size validation based on flash type
+    constexpr uint32_t APP_MAX_SIZE     = 1600 * 1024;  // 1600 KB
+    constexpr uint32_t FACTORY_MIN_SIZE = 4000 * 1024;  // 4000 KB
+
+    if (flashAddr == 0x60000) {
+        // App-only: must be under 1600 KB
+        if (m_espUpdateSize > APP_MAX_SIZE) {
+            emit espUpdateError(
+                QString("File too large for app-only flash (%1 KB). "
+                        "App-only images must be under 1600 KB. "
+                        "This looks like a factory image — select Factory Image instead.")
+                    .arg(m_espUpdateSize / 1024));
+            m_espUpdateData.clear();
+            return;
+        }
+    } else if (flashAddr == 0x00000) {
+        // Factory: must be over 4000 KB
+        if (m_espUpdateSize < FACTORY_MIN_SIZE) {
+            emit espUpdateError(
+                QString("File too small for factory flash (%1 KB). "
+                        "Factory images are typically over 4000 KB. "
+                        "This looks like an app-only image — select App-Only instead.")
+                    .arg(m_espUpdateSize / 1024));
+            m_espUpdateData.clear();
+            return;
+        }
+    }
+
     // Send ESP_UPDATE_START: size(4) + addr(4)
     QByteArray payload;
     payload.append(reinterpret_cast<const char*>(&m_espUpdateSize), 4);

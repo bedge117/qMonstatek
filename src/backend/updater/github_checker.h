@@ -37,6 +37,11 @@ public:
     Q_INVOKABLE void downloadAsset(const QUrl &url, const QString &destPath);
 
     /**
+     * Copy a downloaded file to a user-chosen location.
+     */
+    Q_INVOKABLE bool saveFileTo(const QString &src, const QString &dest);
+
+    /**
      * Get/set the GitHub repository (format: "owner/repo").
      */
     QString repoUrl() const { return m_repoUrl; }
@@ -77,6 +82,12 @@ signals:
     void repoUrlChanged();
     void checkingChanged();
 
+public:
+    /**
+     * Enable persistence: loads saved repo on call, auto-saves on setRepoUrl.
+     */
+    void setPersistKey(const QString &key);
+
 private slots:
     void onReleaseReply(QNetworkReply *reply);
     void onDownloadReply(QNetworkReply *reply);
@@ -84,6 +95,7 @@ private slots:
 private:
     QNetworkAccessManager m_nam;
     QString m_repoUrl = "bedge117/M1";
+    QString m_persistKey;
     QString m_downloadDest;
     bool    m_checking = false;
 
