@@ -1,9 +1,13 @@
 /*
- * self_updater.cpp — qMonstatek desktop application self-updater
+ * self_updater.cpp — qMonstatek self-update helper
  */
 
 #include "self_updater.h"
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QProcess>
 #include <QDebug>
 
 SelfUpdater::SelfUpdater(QObject *parent)
@@ -11,26 +15,31 @@ SelfUpdater::SelfUpdater(QObject *parent)
 {
 }
 
-void SelfUpdater::checkForUpdates()
+QString SelfUpdater::tempDir() const
 {
-    if (m_checking) return;
-
-    m_checking = true;
-    emit checkingChanged(m_checking);
-
-    // TODO: query GitHub releases API for qMonstatek
-    // For now, emit no update available
-    m_checking = false;
-    emit checkingChanged(m_checking);
+    return QDir::tempPath();
 }
 
-void SelfUpdater::downloadAndInstall()
+bool SelfUpdater::launchInstallerAndQuit(const QString &installerPath)
 {
-    if (!m_updateAvailable) {
-        emit updateError("No update available");
-        return;
+    QFileInfo fi(installerPath);
+    if (!fi.exists() || !fi.isFile()) {
+        emit updateError("Installer not found: " + installerPath);
+        return false;
     }
 
-    // TODO: download installer and launch
-    emit updateError("Self-update not yet implemented");
+    qInfo() << "SelfUpdater: launching installer" << installerPath;
+
+    // Start the installer detached so it survives our exit.
+    // No /SILENT flag — let the user see the installer wizard.
+    bool ok = QProcess::startDetached(installerPath, {});
+    if (!ok) {
+        emit updateError("Failed to launch installer. Try running it manually from: "
+                         + installerPath);
+        return false;
+    }
+
+    // Quit so the installer can replace our exe
+    QCoreApplication::quit();
+    return true;
 }

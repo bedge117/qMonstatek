@@ -16,6 +16,7 @@
 #include "device/screen_image_provider.h"
 #include "device/log_model.h"
 #include "updater/github_checker.h"
+#include "updater/self_updater.h"
 #include "updater/dfu_flasher.h"
 #include "updater/swd_recovery.h"
 
@@ -51,7 +52,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("qMonstatek");
     app.setOrganizationName("Monstatek");
-    app.setApplicationVersion("1.1.2");
+    app.setApplicationVersion("2.0.0");
 
     // Open log file next to the executable
     QString logPath = QCoreApplication::applicationDirPath() + "/qmonstatek.log";
@@ -74,6 +75,7 @@ int main(int argc, char *argv[])
     appUpdateChecker.setRepoUrl("bedge117/qMonstatek");
     GithubChecker esp32Checker;
     esp32Checker.setRepoUrl("bedge117/esp32-at-monstatek-m1");
+    SelfUpdater selfUpdater;
     DfuFlasher dfuFlasher;
     SwdRecovery swdRecovery;
     LogModel logModel;
@@ -92,6 +94,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("githubChecker", &githubChecker);
     engine.rootContext()->setContextProperty("appUpdateChecker", &appUpdateChecker);
     engine.rootContext()->setContextProperty("esp32Checker", &esp32Checker);
+    engine.rootContext()->setContextProperty("selfUpdater", &selfUpdater);
     engine.rootContext()->setContextProperty("dfuFlasher", &dfuFlasher);
     engine.rootContext()->setContextProperty("swdRecovery", &swdRecovery);
     engine.rootContext()->setContextProperty("deviceDiscovery", device.discovery());

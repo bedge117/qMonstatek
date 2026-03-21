@@ -36,6 +36,7 @@ qt_add_resources(qmonstatek "app_resources"
     BASE resources
     FILES
         resources/icons/app_icon.png
+        resources/icons/qmonstatek.ico
 )
 
 target_link_libraries(qmonstatek PRIVATE
@@ -47,10 +48,10 @@ target_link_libraries(qmonstatek PRIVATE
     Qt6::Widgets
 )
 
-# Windows application icon (TODO: add .rc file with icon resource)
-# if(WIN32)
-#     target_sources(qmonstatek PRIVATE platform/windows/qmonstatek.rc)
-# endif()
+# Windows application icon
+if(WIN32)
+    target_sources(qmonstatek PRIVATE resources/app.rc)
+endif()
 
 # Install rules
 install(TARGETS qmonstatek

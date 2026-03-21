@@ -169,23 +169,59 @@ void SwdRecovery::probeVersion()
     qInfo() << "SWD: Version =" << m_ocdVersion;
 }
 
+/*
+ * Find STM32_Programmer_CLI.exe for ST-Link operations.
+ * Search order:
+ *   1. STM32CubeProgrammer standalone install
+ *   2. STM32CubeIDE embedded cubeprogrammer plugin
+ */
+void SwdRecovery::resolveCubeProgrammerPath()
+{
+    if (m_cubeProgResolved)
+        return;
+    m_cubeProgResolved = true;
+
+    // 1. Standalone STM32CubeProgrammer
+    QString progPath = "C:/Program Files/STMicroelectronics/STM32Cube/"
+                       "STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe";
+    if (QFile::exists(progPath)) {
+        m_cubeProgrammerPath = progPath;
+        qInfo() << "SWD: CubeProgrammer =" << m_cubeProgrammerPath;
+        return;
+    }
+
+    // 2. Embedded in STM32CubeIDE
+    QDir stDir("C:/ST");
+    if (stDir.exists()) {
+        QStringList ideEntries = stDir.entryList(
+            QStringList() << "STM32CubeIDE*", QDir::Dirs, QDir::Name | QDir::Reversed);
+        for (const QString &ideEntry : ideEntries) {
+            QDir pluginsDir(stDir.filePath(ideEntry) + "/STM32CubeIDE/plugins");
+            if (!pluginsDir.exists())
+                continue;
+            QStringList cubeProgs = pluginsDir.entryList(
+                QStringList() << "com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer*",
+                QDir::Dirs);
+            for (const QString &cp : cubeProgs) {
+                QString candidate = pluginsDir.filePath(cp) +
+                                    "/tools/bin/STM32_Programmer_CLI.exe";
+                if (QFile::exists(candidate)) {
+                    m_cubeProgrammerPath = candidate;
+                    qInfo() << "SWD: CubeProgrammer =" << m_cubeProgrammerPath;
+                    return;
+                }
+            }
+        }
+    }
+
+    qWarning() << "SWD: STM32_Programmer_CLI not found.";
+}
+
 QString SwdRecovery::interfaceConfig() const
 {
-    switch (m_probeType) {
-    case StLinkV2: {
-        // Prefer stlink-dap.cfg (native CMSIS-DAP mode) over stlink.cfg (HLA mode).
-        // HLA mode triggers hla_swd transport which has swj_newdap/hla newtap
-        // compatibility issues with stm32h5x.cfg on some OpenOCD versions.
-        // Native DAP mode works on all ST-Link V2-1, V3, and most V2 clones.
-        if (!m_scriptsPath.isEmpty()) {
-            QString dapCfg = QDir(m_scriptsPath).filePath("interface/stlink-dap.cfg");
-            if (QFile::exists(dapCfg))
-                return QStringLiteral("interface/stlink-dap.cfg");
-        }
-        return QStringLiteral("interface/stlink.cfg");
-    }
-    default:       return QStringLiteral("interface/cmsis-dap.cfg");
-    }
+    // ST-Link uses STM32_Programmer_CLI (not OpenOCD), so this is only
+    // called for Pico CMSIS-DAP.
+    return QStringLiteral("interface/cmsis-dap.cfg");
 }
 
 /*
@@ -194,6 +230,17 @@ QString SwdRecovery::interfaceConfig() const
  */
 bool SwdRecovery::validateSetup(QString &error) const
 {
+    if (m_probeType == StLinkV2) {
+        // ST-Link uses STM32_Programmer_CLI
+        if (m_cubeProgrammerPath.isEmpty()) {
+            error = "STM32_Programmer_CLI not found. Install STM32CubeProgrammer "
+                    "or STM32CubeIDE.";
+            return false;
+        }
+        return true;
+    }
+
+    // Pico CMSIS-DAP uses OpenOCD
     if (m_ocdPath.isEmpty() || m_scriptsPath.isEmpty()) {
         error = "OpenOCD not found. Install STM32CubeIDE or place OpenOCD "
                 "in the openocd/ folder next to qmonstatek.exe.";
@@ -227,11 +274,16 @@ bool SwdRecovery::validateSetup(QString &error) const
 bool SwdRecovery::isOpenOcdAvailable()
 {
     resolveOpenOcdPaths();
+    resolveCubeProgrammerPath();
+    if (m_probeType == StLinkV2)
+        return !m_cubeProgrammerPath.isEmpty();
     return !m_ocdPath.isEmpty() && !m_scriptsPath.isEmpty();
 }
 
 QString SwdRecovery::openOcdLocation()
 {
+    if (m_probeType == StLinkV2)
+        return m_cubeProgrammerPath;
     return m_ocdPath;
 }
 
@@ -263,6 +315,22 @@ void SwdRecovery::recoveryFlash(const QString &binFilePath)
         return;
     }
 
+    if (m_probeType == StLinkV2) {
+        // ST-Link: use STM32_Programmer_CLI
+        // Writes to 0x08000000 (boot address regardless of SWAP_BANK),
+        // auto-erases needed sectors, verifies, and resets.
+        QString path = fi.absoluteFilePath().replace('\\', '/');
+        QStringList args;
+        args << "-c" << "port=SWD" << "mode=UR" << "reset=HWrst"
+             << "-e" << "all"
+             << "-w" << path << "0x08000000"
+             << "-v"
+             << "-rst";
+        runCubeProgrammer(args, "Recovery Flash");
+        return;
+    }
+
+    // Pico CMSIS-DAP: use OpenOCD
     // Use forward slashes — OpenOCD's Tcl parser treats \ as escape chars
     QString path = fi.absoluteFilePath().replace('\\', '/');
 
@@ -304,6 +372,22 @@ void SwdRecovery::swapBank()
         return;
     }
 
+    if (m_probeType == StLinkV2) {
+        // ST-Link: read current SWAP_BANK and toggle it.
+        // CubeProgrammer reads current value and we toggle.
+        // Since we can't read-then-toggle atomically, we use two steps:
+        // For simplicity, just set SWAP_BANK=1. If already 1, set to 0.
+        // TODO: read current state first. For now, prompt user or just toggle.
+        // Using -ob with a value always sets it.
+        // We'll read status first via a separate call, but for now just
+        // offer a simple toggle: try setting SWAP_BANK=1, if it was already 1
+        // the OBL launch will still reset.
+        emit operationError("Swap Bank with ST-Link: use Read Status to check current "
+                            "bank, then use STM32CubeProgrammer to set SWAP_BANK.");
+        return;
+    }
+
+    // Pico CMSIS-DAP: use OpenOCD
     // Unlock flash + option bytes, read OPTR, toggle SWAP_BANK (bit 31), launch, reset
     QString cmds =
         "adapter speed 2000; init; "
@@ -393,6 +477,16 @@ void SwdRecovery::readStatus()
         return;
     }
 
+    if (m_probeType == StLinkV2) {
+        // ST-Link: use CubeProgrammer to display option bytes
+        QStringList args;
+        args << "-c" << "port=SWD" << "mode=UR" << "reset=HWrst"
+             << "-ob" << "displ";
+        runCubeProgrammer(args, "Read Status");
+        return;
+    }
+
+    // Pico CMSIS-DAP: use OpenOCD
     runOpenOcd("adapter speed 2000; init; "
                "halt; "
                "mdw 0x40022050; exit",  // OPTSR_CUR at 0x40022050
@@ -411,17 +505,17 @@ void SwdRecovery::runOpenOcd(const QString &commands, const QString &opName)
     }
 
     clearLog();
-    m_currentOp = opName;
-    m_running   = true;
-    m_progress  = 0;
+    m_currentOp    = opName;
+    m_running      = true;
+    m_progress     = 0;
+    m_usingCubeProg = false;
     emit runningChanged(true);
     emit progressChanged(0);
     setStatus(opName + "...");
 
     // Diagnostic header
     appendLog("=== " + opName + " ===\n");
-    appendLog("Probe:   " +
-              QString(m_probeType == StLinkV2 ? "ST-Link" : "Pico CMSIS-DAP") + "\n");
+    appendLog("Probe:   Pico CMSIS-DAP\n");
     appendLog("OpenOCD: " + m_ocdPath + "\n");
     appendLog("Scripts: " + m_scriptsPath + "\n");
     appendLog("Version: " + m_ocdVersion + "\n");
@@ -480,6 +574,69 @@ void SwdRecovery::runOpenOcd(const QString &commands, const QString &opName)
     m_process->start(m_ocdPath, args);
 }
 
+void SwdRecovery::runCubeProgrammer(const QStringList &cubeArgs, const QString &opName)
+{
+    resolveCubeProgrammerPath();
+
+    // Pre-flight validation
+    QString setupError;
+    if (!validateSetup(setupError)) {
+        emit operationError(setupError);
+        return;
+    }
+
+    clearLog();
+    m_currentOp     = opName;
+    m_running       = true;
+    m_progress      = 0;
+    m_usingCubeProg = true;
+    emit runningChanged(true);
+    emit progressChanged(0);
+    setStatus(opName + "...");
+
+    // Diagnostic header
+    appendLog("=== " + opName + " ===\n");
+    appendLog("Probe:   ST-Link\n");
+    appendLog("Tool:    " + m_cubeProgrammerPath + "\n\n");
+
+    m_process = new QProcess(this);
+    m_process->setProcessChannelMode(QProcess::MergedChannels);
+    m_process->setWorkingDirectory(QFileInfo(m_cubeProgrammerPath).absolutePath());
+
+    connect(m_process, &QProcess::readyRead,
+            this, &SwdRecovery::onProcessOutput);
+    connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &SwdRecovery::onProcessFinished);
+    connect(m_process, &QProcess::errorOccurred,
+            this, [this](QProcess::ProcessError err) {
+        QString msg;
+        switch (err) {
+        case QProcess::FailedToStart:
+            msg = "STM32_Programmer_CLI failed to start.";
+            break;
+        default:
+            msg = "STM32_Programmer_CLI process error: " + QString::number(err);
+            break;
+        }
+        appendLog("\nERROR: " + msg + "\n");
+        if (m_running) {
+            m_running = false;
+            emit runningChanged(false);
+            setStatus(m_currentOp + " -- " + msg);
+            emit operationError(msg);
+        }
+    });
+
+    // Log command
+    appendLog("Command: " + m_cubeProgrammerPath + "\n");
+    for (const QString &arg : cubeArgs)
+        appendLog("  " + arg + "\n");
+    appendLog("\n");
+
+    qInfo() << "SWD:" << m_cubeProgrammerPath << cubeArgs;
+    m_process->start(m_cubeProgrammerPath, cubeArgs);
+}
+
 void SwdRecovery::onProcessOutput()
 {
     if (!m_process)
@@ -488,48 +645,100 @@ void SwdRecovery::onProcessOutput()
     QString text = QString::fromUtf8(m_process->readAll());
     appendLog(text);
 
-    // Parse progress indicators from OpenOCD output
     for (const QString &part : text.split('\n', Qt::SkipEmptyParts)) {
         QString line = part.trimmed();
 
-        if (line.contains("Programming Started")) {
-            m_progress = 25;
-            emit progressChanged(m_progress);
-            setStatus(m_currentOp + " -- programming...");
-        } else if (line.contains("Programming Finished")) {
-            m_progress = 50;
-            emit progressChanged(m_progress);
-            setStatus(m_currentOp + " -- verifying...");
-        } else if (line.contains("Verify Started")) {
-            m_progress = 60;
-            emit progressChanged(m_progress);
-        } else if (line.contains("Verified OK") || line.contains("verified")) {
-            m_progress = 90;
-            emit progressChanged(m_progress);
-            setStatus(m_currentOp + " -- verified OK");
-        } else if (line.contains("Resetting Target")) {
-            m_progress = 95;
-            emit progressChanged(m_progress);
-        } else if (line.contains("dumped")) {
-            m_progress = 40;
-            emit progressChanged(m_progress);
-            setStatus(m_currentOp + " -- bank 1 dumped, programming bank 2...");
-        }
+        if (m_usingCubeProg) {
+            // ── STM32_Programmer_CLI output parsing ──
+            if (line.contains("Mass erase command correctly executed") ||
+                line.contains("Full chip erase")) {
+                m_progress = 20;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- erased, programming...");
+            } else if (line.contains("Download in Progress")) {
+                m_progress = 30;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- programming...");
+            } else if (line.contains("File download complete")) {
+                m_progress = 60;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- verifying...");
+            } else if (line.contains("Verification") && line.contains("OK")) {
+                m_progress = 90;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- verified OK");
+            } else if (line.contains("MCU Reset")) {
+                m_progress = 95;
+                emit progressChanged(m_progress);
+            }
 
-        // Parse OPTSR_CUR register value for Read Status
-        if (m_currentOp == "Read Status" && line.contains("0x40022050")) {
-            static QRegularExpression re("0x40022050\\s*:?\\s*([0-9a-fA-F]{8})");
-            auto match = re.match(line);
-            if (match.hasMatch()) {
-                bool ok;
-                quint32 optr = match.captured(1).toUInt(&ok, 16);
-                if (ok) {
-                    bool swapBankSet = (optr & 0x80000000) != 0;
-                    QString bankInfo = swapBankSet
-                        ? "SWAP_BANK = 1 : Bank 2 is active (mapped to 0x08000000)"
-                        : "SWAP_BANK = 0 : Bank 1 is active (mapped to 0x08000000)";
-                    appendLog("\n" + bankInfo + "\n");
-                    setStatus(bankInfo);
+            // Parse percentage from download progress (e.g. "  45%")
+            static QRegularExpression pctRe("^\\s*(\\d+)%");
+            auto pctMatch = pctRe.match(line);
+            if (pctMatch.hasMatch()) {
+                int pct = pctMatch.captured(1).toInt();
+                // Map download 0-100% to our 30-60% range
+                m_progress = 30 + (pct * 30) / 100;
+                emit progressChanged(m_progress);
+            }
+
+            // Parse SWAP_BANK from option bytes display
+            if (m_currentOp == "Read Status" && line.contains("SWAP_BANK")) {
+                static QRegularExpression sbRe("SWAP_BANK\\s*[:=]\\s*(0x[0-9a-fA-F]+|\\d+)");
+                auto sbMatch = sbRe.match(line);
+                if (sbMatch.hasMatch()) {
+                    bool ok;
+                    int val = sbMatch.captured(1).toInt(&ok, 0);
+                    if (ok) {
+                        QString bankInfo = val
+                            ? "SWAP_BANK = 1 : Bank 2 is active (mapped to 0x08000000)"
+                            : "SWAP_BANK = 0 : Bank 1 is active (mapped to 0x08000000)";
+                        appendLog("\n" + bankInfo + "\n");
+                        setStatus(bankInfo);
+                    }
+                }
+            }
+        } else {
+            // ── OpenOCD output parsing ──
+            if (line.contains("Programming Started")) {
+                m_progress = 25;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- programming...");
+            } else if (line.contains("Programming Finished")) {
+                m_progress = 50;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- verifying...");
+            } else if (line.contains("Verify Started")) {
+                m_progress = 60;
+                emit progressChanged(m_progress);
+            } else if (line.contains("Verified OK") || line.contains("verified")) {
+                m_progress = 90;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- verified OK");
+            } else if (line.contains("Resetting Target")) {
+                m_progress = 95;
+                emit progressChanged(m_progress);
+            } else if (line.contains("dumped")) {
+                m_progress = 40;
+                emit progressChanged(m_progress);
+                setStatus(m_currentOp + " -- bank 1 dumped, programming bank 2...");
+            }
+
+            // Parse OPTSR_CUR register value for Read Status
+            if (m_currentOp == "Read Status" && line.contains("0x40022050")) {
+                static QRegularExpression re("0x40022050\\s*:?\\s*([0-9a-fA-F]{8})");
+                auto match = re.match(line);
+                if (match.hasMatch()) {
+                    bool ok;
+                    quint32 optr = match.captured(1).toUInt(&ok, 16);
+                    if (ok) {
+                        bool swapBankSet = (optr & 0x80000000) != 0;
+                        QString bankInfo = swapBankSet
+                            ? "SWAP_BANK = 1 : Bank 2 is active (mapped to 0x08000000)"
+                            : "SWAP_BANK = 0 : Bank 1 is active (mapped to 0x08000000)";
+                        appendLog("\n" + bankInfo + "\n");
+                        setStatus(bankInfo);
+                    }
                 }
             }
         }
@@ -538,11 +747,12 @@ void SwdRecovery::onProcessOutput()
 
 void SwdRecovery::onProcessFinished(int exitCode, QProcess::ExitStatus exitStatus)
 {
-    // Read any remaining output
+    // Read any remaining output and release OS handles immediately
     if (m_process) {
         QString remaining = QString::fromUtf8(m_process->readAll());
         if (!remaining.isEmpty())
             appendLog(remaining);
+        m_process->close();          // release handles NOW (not deferred)
         m_process->deleteLater();
         m_process = nullptr;
     }
@@ -550,9 +760,11 @@ void SwdRecovery::onProcessFinished(int exitCode, QProcess::ExitStatus exitStatu
     m_running = false;
     emit runningChanged(false);
 
+    QString toolName = m_usingCubeProg ? "STM32_Programmer_CLI" : "OpenOCD";
+
     if (exitStatus == QProcess::CrashExit) {
-        setStatus(m_currentOp + " -- OpenOCD crashed.");
-        emit operationError("OpenOCD process crashed. Check probe connection and try again.");
+        setStatus(m_currentOp + " -- " + toolName + " crashed.");
+        emit operationError(toolName + " crashed. Check probe connection and try again.");
         return;
     }
 
@@ -566,27 +778,33 @@ void SwdRecovery::onProcessFinished(int exitCode, QProcess::ExitStatus exitStatu
     } else {
         QString msg = m_currentOp + " failed (exit code " + QString::number(exitCode) + ").";
 
-        // Add hints for common errors
-        if (m_outputLog.contains("unable to find") ||
-            m_outputLog.contains("Error connecting DP")) {
-            msg += "\nCheck that the probe is connected and the M1 is powered.";
-        }
-        if (m_outputLog.contains("No CMSIS-DAP") ||
-            m_outputLog.contains("no device found")) {
-            msg += "\nNo debug probe detected. Verify USB connection.";
-        }
-        if (m_outputLog.contains("LIBUSB_ERROR")) {
-            msg += "\nUSB driver issue. Try reinstalling the probe driver.";
-        }
-        if (m_outputLog.contains("hla newtap") ||
-            m_outputLog.contains("swj_newdap") ||
-            m_outputLog.contains("using_hla")) {
-            msg += "\nOpenOCD transport/config error. This usually means the debug probe "
-                   "is not connected or not recognized. Verify:\n"
-                   "  1. Probe is plugged into USB\n"
-                   "  2. Correct probe type is selected above\n"
-                   "  3. SWD wires: SWCLK, SWDIO, GND connected to M1\n"
-                   "  4. M1 is powered (USB-C or battery)";
+        if (m_usingCubeProg) {
+            // STM32_Programmer_CLI error hints
+            if (m_outputLog.contains("No STM32 target found") ||
+                m_outputLog.contains("ST-LINK error") ||
+                m_outputLog.contains("No debug probe detected")) {
+                msg += "\nST-Link not detected or M1 not connected. Verify:\n"
+                       "  1. ST-Link is plugged into USB\n"
+                       "  2. SWD wires: SWCLK, SWDIO, GND connected to M1\n"
+                       "  3. M1 is powered (USB-C or battery)";
+            }
+            if (m_outputLog.contains("Error: Erase") ||
+                m_outputLog.contains("Mass erase failed")) {
+                msg += "\nFlash erase failed. The device may be read-protected.";
+            }
+        } else {
+            // OpenOCD error hints
+            if (m_outputLog.contains("unable to find") ||
+                m_outputLog.contains("Error connecting DP")) {
+                msg += "\nCheck that the probe is connected and the M1 is powered.";
+            }
+            if (m_outputLog.contains("No CMSIS-DAP") ||
+                m_outputLog.contains("no device found")) {
+                msg += "\nNo debug probe detected. Verify USB connection.";
+            }
+            if (m_outputLog.contains("LIBUSB_ERROR")) {
+                msg += "\nUSB driver issue. Try reinstalling the probe driver.";
+            }
         }
 
         setStatus(msg);

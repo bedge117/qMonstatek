@@ -62,7 +62,9 @@ private slots:
 
 private:
     void    runOpenOcd(const QString &commands, const QString &opName);
+    void    runCubeProgrammer(const QStringList &args, const QString &opName);
     void    resolveOpenOcdPaths();
+    void    resolveCubeProgrammerPath();
     void    probeVersion();
     QString interfaceConfig() const;
     bool    validateSetup(QString &error) const;
@@ -73,11 +75,14 @@ private:
     QString   m_ocdPath;
     QString   m_scriptsPath;
     QString   m_ocdVersion;
+    QString   m_cubeProgrammerPath;
 
     bool    m_running        = false;
     int     m_progress       = 0;
     int     m_probeType      = PicoCmsisDap;
     bool    m_pathsResolved  = false;
+    bool    m_cubeProgResolved = false;
+    bool    m_usingCubeProg  = false;
     QString m_statusMessage;
     QString m_outputLog;
     QString m_currentOp;

@@ -235,6 +235,15 @@ Item {
                             color: Material.hintTextColor
                             Layout.topMargin: 4
                         }
+
+                        Label {
+                            text: "Requires OpenOCD (included with STM32CubeIDE, free from st.com)."
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            font.pixelSize: 11
+                            color: Material.hintTextColor
+                            Layout.topMargin: 2
+                        }
                     }
 
                     // ST-Link instructions
@@ -254,8 +263,10 @@ Item {
                                   "  SWCLK \u2192 M1 Header Pin 10\n" +
                                   "  SWDIO \u2192 M1 Header Pin 11\n" +
                                   "  GND \u2192 M1 Header Pin 8 or 18\n\n" +
-                                  "Power the M1 via its own USB cable. No additional drivers are " +
-                                  "needed if STM32CubeIDE is installed."
+                                  "Power the M1 via its own USB cable.\n\n" +
+                                  "Requires STM32CubeProgrammer (free from st.com).\n" +
+                                  "If using a Nucleo board's built-in ST-Link, remove the CN2 " +
+                                  "jumpers to disconnect it from the onboard MCU."
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                             font.pixelSize: 12
@@ -263,7 +274,7 @@ Item {
                         }
                     }
 
-                    // OpenOCD status
+                    // Tool status (OpenOCD for Pico, STM32CubeProgrammer for ST-Link)
                     RowLayout {
                         spacing: 8
                         Layout.topMargin: 4
@@ -274,16 +285,21 @@ Item {
                         }
 
                         Label {
+                            property bool isStLink: swdRecovery.probeType === 1
+                            property string toolName: isStLink ? "STM32CubeProgrammer" : "OpenOCD"
                             text: swdRecovery.isOpenOcdAvailable()
-                                  ? "OpenOCD found"
-                                  : "OpenOCD not found"
+                                  ? toolName + " found"
+                                  : toolName + " not found"
                             font.pixelSize: 12
                         }
 
                         Label {
+                            property bool isStLink: swdRecovery.probeType === 1
                             text: swdRecovery.isOpenOcdAvailable()
                                   ? swdRecovery.openOcdLocation()
-                                  : "Install STM32CubeIDE or place OpenOCD in openocd/ next to qmonstatek.exe"
+                                  : isStLink
+                                    ? "Install STM32CubeProgrammer from st.com"
+                                    : "Install STM32CubeIDE or place OpenOCD in openocd/ next to qmonstatek.exe"
                             font.pixelSize: 11
                             color: Material.hintTextColor
                             Layout.fillWidth: true

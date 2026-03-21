@@ -97,18 +97,36 @@ Item {
             spacing: 8
 
             property string updateStatus: ""
-            property string updateUrl: ""
             property string latestVersion: ""
+            property string installerUrl: ""
+            property string installerName: ""
+            property bool downloading: false
+            property int downloadPct: 0
+            property string downloadedPath: ""
+
+            // Find the _setup.exe asset from release assets
+            function findInstallerAsset(assets) {
+                for (var i = 0; i < assets.length; i++) {
+                    var name = assets[i].name
+                    if (name.indexOf("_setup") >= 0 && name.indexOf(".exe") >= 0) {
+                        return assets[i]
+                    }
+                }
+                return null
+            }
 
             Button {
                 id: checkBtn
                 text: appUpdateChecker.checking ? "Checking..." : "Check for Updates"
-                enabled: !appUpdateChecker.checking
+                enabled: !appUpdateChecker.checking && !updateSection.downloading
                 Layout.alignment: Qt.AlignHCenter
                 onClicked: {
                     updateSection.updateStatus = ""
-                    updateSection.updateUrl = ""
                     updateSection.latestVersion = ""
+                    updateSection.installerUrl = ""
+                    updateSection.installerName = ""
+                    updateSection.downloadedPath = ""
+                    updateSection.downloadPct = 0
                     var parts = Qt.application.version.split(".")
                     appUpdateChecker.checkForUpdates(
                         parseInt(parts[0]) || 0,
@@ -118,13 +136,14 @@ Item {
                 }
             }
 
+            // Status text
             Label {
                 id: statusLabel
                 visible: updateSection.updateStatus.length > 0
                 text: updateSection.updateStatus
                 font.pixelSize: 12
                 color: {
-                    if (updateSection.updateUrl.length > 0) return "#4CAF50"
+                    if (updateSection.installerUrl.length > 0) return "#4CAF50"
                     if (updateSection.updateStatus.indexOf("Error") === 0) return "#F44336"
                     if (updateSection.updateStatus.indexOf("Could not") === 0) return "#FF9800"
                     return "#4CAF50"
@@ -135,13 +154,33 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
             }
 
+            // Download & Install button (shown when installer asset found)
+            Button {
+                id: installBtn
+                visible: updateSection.installerUrl.length > 0 && !updateSection.downloading
+                         && updateSection.downloadedPath.length === 0
+                text: "Download & Install " + updateSection.latestVersion
+                highlighted: true
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: {
+                    updateSection.downloading = true
+                    updateSection.downloadPct = 0
+                    var destPath = selfUpdater.tempDir() + "/" + updateSection.installerName
+                    appUpdateChecker.downloadAsset(updateSection.installerUrl, destPath)
+                }
+            }
+
+            // Fallback: link to GitHub releases if no installer asset
             Label {
-                visible: updateSection.updateUrl.length > 0
-                text: "<a href=\"" + updateSection.updateUrl + "\" style=\"color:#2196F3;\">Download " + updateSection.latestVersion + "</a>"
+                id: fallbackLink
+                visible: updateSection.latestVersion.length > 0
+                         && updateSection.installerUrl.length === 0
+                         && !updateSection.downloading
+                text: "<a href=\"" + updateSection.htmlUrl + "\" style=\"color:#2196F3;\">Download " + updateSection.latestVersion + " from GitHub</a>"
                 font.pixelSize: 12
                 Layout.alignment: Qt.AlignHCenter
                 onLinkActivated: function(link) { Qt.openUrlExternally(link) }
-
+                property string htmlUrl: ""
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
@@ -149,12 +188,53 @@ Item {
                 }
             }
 
+            // Progress bar during download
+            ColumnLayout {
+                visible: updateSection.downloading
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 4
+
+                Label {
+                    text: "Downloading... " + updateSection.downloadPct + "%"
+                    font.pixelSize: 12
+                    Layout.alignment: Qt.AlignHCenter
+                }
+                ProgressBar {
+                    from: 0; to: 100
+                    value: updateSection.downloadPct
+                    Layout.preferredWidth: 300
+                    Layout.alignment: Qt.AlignHCenter
+                }
+            }
+
+            // Launch button (shown after download completes)
+            Button {
+                visible: updateSection.downloadedPath.length > 0
+                text: "Install Now"
+                highlighted: true
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: {
+                    selfUpdater.launchInstallerAndQuit(updateSection.downloadedPath)
+                }
+            }
+
             Connections {
                 target: appUpdateChecker
                 function onReleaseFound(info) {
                     updateSection.updateStatus = "New version available: " + info.versionFormatted
-                    updateSection.updateUrl = info.htmlUrl
                     updateSection.latestVersion = info.versionFormatted
+
+                    // Look for installer asset
+                    var assets = info.assets
+                    var installer = updateSection.findInstallerAsset(assets)
+                    if (installer) {
+                        updateSection.installerUrl = installer.downloadUrl
+                        updateSection.installerName = installer.name
+                    } else {
+                        // No installer asset — fall back to GitHub link
+                        updateSection.installerUrl = ""
+                        fallbackLink.htmlUrl = info.htmlUrl
+                    }
                 }
                 function onNoUpdateAvailable(message) {
                     updateSection.updateStatus = "You are on the latest version (v" + Qt.application.version + ")"
@@ -165,6 +245,26 @@ Item {
                     } else {
                         updateSection.updateStatus = "Error: " + message
                     }
+                }
+                function onDownloadProgress(percent) {
+                    if (updateSection.downloading)
+                        updateSection.downloadPct = percent
+                }
+                function onDownloadComplete(filePath) {
+                    updateSection.downloading = false
+                    updateSection.downloadedPath = filePath
+                    updateSection.updateStatus = "Download complete! Click Install Now to update."
+                }
+                function onDownloadError(message) {
+                    updateSection.downloading = false
+                    updateSection.updateStatus = "Error downloading: " + message
+                }
+            }
+
+            Connections {
+                target: selfUpdater
+                function onUpdateError(message) {
+                    updateSection.updateStatus = "Error: " + message
                 }
             }
         }
