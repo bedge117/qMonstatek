@@ -104,15 +104,18 @@ Item {
             property int downloadPct: 0
             property string downloadedPath: ""
 
-            // Find the _setup.exe asset from release assets
+            // Find the _setup.zip asset from release assets (fall back to _setup.exe)
             function findInstallerAsset(assets) {
+                var zipAsset = null
+                var exeAsset = null
                 for (var i = 0; i < assets.length; i++) {
                     var name = assets[i].name
-                    if (name.indexOf("_setup") >= 0 && name.indexOf(".exe") >= 0) {
-                        return assets[i]
+                    if (name.indexOf("_setup") >= 0) {
+                        if (name.indexOf(".zip") >= 0) zipAsset = assets[i]
+                        else if (name.indexOf(".exe") >= 0) exeAsset = assets[i]
                     }
                 }
-                return null
+                return zipAsset || exeAsset
             }
 
             Button {

@@ -1,8 +1,9 @@
 /*
  * self_updater.h — qMonstatek self-update helper
  *
- * Provides a method to launch a downloaded installer and quit
- * the running application so the installer can replace files.
+ * Provides methods to extract a downloaded installer zip and
+ * launch it, then quit the running application so the installer
+ * can replace files.
  */
 
 #ifndef SELF_UPDATER_H
@@ -17,20 +18,20 @@ class SelfUpdater : public QObject {
 public:
     explicit SelfUpdater(QObject *parent = nullptr);
 
-    /**
-     * Return the system temp directory for storing the downloaded installer.
-     */
     Q_INVOKABLE QString tempDir() const;
 
     /**
-     * Launch the downloaded installer and quit qMonstatek.
-     * The Inno Setup installer will kill any remaining instance
-     * via taskkill, upgrade in place, and optionally relaunch.
+     * Launch installer from a downloaded file.
+     * If the file is a .zip, extracts the .exe first.
+     * Quits qMonstatek so the installer can replace files.
      */
-    Q_INVOKABLE bool launchInstallerAndQuit(const QString &installerPath);
+    Q_INVOKABLE bool launchInstallerAndQuit(const QString &path);
 
 signals:
     void updateError(const QString &message);
+
+private:
+    QString extractSetupExe(const QString &zipPath);
 };
 
 #endif // SELF_UPDATER_H
