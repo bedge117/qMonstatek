@@ -88,6 +88,17 @@ Item {
             view.statusText = "Upload complete"
             refresh()
         }
+        function onMultiUploadProgress(fileIndex, totalFiles, fileName) {
+            uploadProgress.visible = true
+            if (totalFiles > 0)
+                uploadProgress.value = fileIndex / totalFiles
+            view.statusText = "Uploading " + fileName + " (" + fileIndex + "/" + totalFiles + ")"
+        }
+        function onMultiUploadComplete(totalFiles) {
+            uploadProgress.visible = false
+            view.statusText = "Uploaded " + totalFiles + " files"
+            refresh()
+        }
         function onFileDeleteComplete() {
             if (bulkDeleteQueue.length > 0) {
                 var next = bulkDeleteQueue.shift()
@@ -107,6 +118,16 @@ Item {
         function onFileMkdirComplete() {
             view.statusText = "Folder created"
             refresh()
+        }
+        function onSdMountChanged(mounted) {
+            if (mounted) {
+                view.statusText = "SD card mounted"
+                refresh()
+            } else {
+                view.statusText = "SD card unmounted — accessible from Windows"
+                view.fileEntries = []
+                clearSelection()
+            }
         }
         function onConnectionChanged(connected) {
             if (connected && view.pendingDelete) {
@@ -180,17 +201,33 @@ Item {
             }
             Item { Layout.fillWidth: true }
 
-            Button { text: "Up"; onClicked: navigateUp(); enabled: m1device.connected }
-            Button { text: "Refresh"; onClicked: refresh(); enabled: m1device.connected }
+            Button { text: "Up"; onClicked: navigateUp(); enabled: m1device.connected && m1device.sdMounted }
+            Button { text: "Refresh"; onClicked: refresh(); enabled: m1device.connected && m1device.sdMounted }
             Button {
-                text: "Upload"
-                enabled: m1device.connected
+                text: "Upload Files"
+                enabled: m1device.connected && m1device.sdMounted
                 onClicked: uploadDialog.open()
             }
             Button {
+                text: "Upload Folder"
+                enabled: m1device.connected && m1device.sdMounted
+                onClicked: folderUploadDialog.open()
+            }
+            Button {
                 text: "New Folder"
-                enabled: m1device.connected
+                enabled: m1device.connected && m1device.sdMounted
                 onClicked: newFolderDialog.open()
+            }
+            Button {
+                text: m1device.sdMounted ? "Unmount SD" : "Mount SD"
+                enabled: m1device.connected
+                Material.foreground: m1device.sdMounted ? Material.foreground : "#4CAF50"
+                onClicked: {
+                    if (m1device.sdMounted)
+                        m1device.unmountSdCard()
+                    else
+                        m1device.mountSdCard()
+                }
             }
         }
 
@@ -206,6 +243,26 @@ Item {
                 font.pixelSize: 13
                 font.family: "Courier New"
                 anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        // SD unmounted banner
+        Pane {
+            visible: m1device.connected && !m1device.sdMounted
+            Layout.fillWidth: true
+            Material.elevation: 1
+            Material.background: "#FFF3E0"
+            padding: 12
+
+            RowLayout {
+                anchors.fill: parent
+                Label {
+                    text: "SD card is unmounted — accessible from Windows. Click Mount SD when done."
+                    font.pixelSize: 12
+                    color: "#E65100"
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
             }
         }
 
@@ -363,7 +420,7 @@ Item {
 
             // Empty state
             Label {
-                visible: fileList.count === 0 && m1device.connected
+                visible: fileList.count === 0 && m1device.connected && m1device.sdMounted
                 text: "Empty directory"
                 anchors.centerIn: parent
                 color: Material.hintTextColor
@@ -388,14 +445,27 @@ Item {
         return (bytes / 1048576).toFixed(1) + " MB"
     }
 
-    // Dialogs
+    // Dialogs — Upload supports multi-file selection
     FileDialog {
         id: uploadDialog
-        title: "Select File to Upload"
+        title: "Select Files to Upload"
+        fileMode: FileDialog.OpenFiles
         onAccepted: {
-            var localPath = selectedFile.toString().replace("file:///", "")
-            var fileName = localPath.split("/").pop().split("\\").pop()
-            m1device.uploadFile(localPath, buildRemotePath(fileName))
+            if (selectedFiles.length === 1) {
+                var localPath = selectedFiles[0].toString().replace("file:///", "")
+                var fileName = localPath.split("/").pop().split("\\").pop()
+                m1device.uploadFile(localPath, buildRemotePath(fileName))
+            } else if (selectedFiles.length > 1) {
+                m1device.uploadFiles(selectedFiles, currentPath)
+            }
+        }
+    }
+
+    FolderDialog {
+        id: folderUploadDialog
+        title: "Select Folder to Upload"
+        onAccepted: {
+            m1device.uploadFolder(selectedFolder.toString(), currentPath)
         }
     }
 

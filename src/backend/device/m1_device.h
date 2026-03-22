@@ -47,6 +47,7 @@ class M1Device : public QObject {
     Q_PROPERTY(QString sdCapacity READ sdCapacity NOTIFY deviceInfoUpdated)
     Q_PROPERTY(bool esp32Ready READ esp32Ready NOTIFY deviceInfoUpdated)
     Q_PROPERTY(QString esp32Version READ esp32Version NOTIFY deviceInfoUpdated)
+    Q_PROPERTY(bool sdMounted READ isSdMounted NOTIFY sdMountChanged)
     Q_PROPERTY(bool screenStreaming READ isScreenStreaming NOTIFY screenStreamingChanged)
     Q_PROPERTY(QImage screenImage READ screenImage NOTIFY screenFrameReceived)
     Q_PROPERTY(int screenFrameCount READ screenFrameCount NOTIFY screenFrameReceived)
@@ -102,8 +103,15 @@ public:
     Q_INVOKABLE void requestFileList(const QString &path);
     Q_INVOKABLE void downloadFile(const QString &remotePath, const QString &localPath);
     Q_INVOKABLE void uploadFile(const QString &localPath, const QString &remotePath);
+    Q_INVOKABLE void uploadFiles(const QVariantList &fileUrls, const QString &remotePath);
+    Q_INVOKABLE void uploadFolder(const QString &localFolderUrl, const QString &remotePath);
     Q_INVOKABLE void deleteFile(const QString &remotePath);
     Q_INVOKABLE void makeDirectory(const QString &remotePath);
+
+    /* SD card mount/unmount */
+    Q_INVOKABLE void mountSdCard();
+    Q_INVOKABLE void unmountSdCard();
+    bool isSdMounted() const { return m_sdMounted; }
 
     /* Firmware update */
     Q_INVOKABLE void requestFwInfo();
@@ -142,6 +150,9 @@ signals:
     void fileDeleteComplete();
     void fileMkdirComplete();
     void fileOperationError(const QString &message);
+    void multiUploadProgress(int fileIndex, int totalFiles, const QString &fileName);
+    void multiUploadComplete(int totalFiles);
+    void sdMountChanged(bool mounted);
 
     /* Firmware signals */
     void fwInfoReceived(const QJsonObject &info);
@@ -219,6 +230,22 @@ private:
     uint32_t        m_fileUploadSize = 0;
     QTimer          m_fileUploadTimeout;
     void            fileUploadSendNextChunk();
+
+    /* Multi-file upload queue */
+    struct UploadQueueItem {
+        QString localPath;
+        QString remotePath;
+    };
+    QList<UploadQueueItem> m_uploadQueue;
+    int m_uploadQueueIndex = -1;   // -1 = queue inactive
+    QStringList m_mkdirQueue;
+    int m_mkdirQueueIndex = -1;
+    void startUploadQueue();
+    void advanceUploadQueue();
+    void advanceMkdirQueue();
+
+    /* SD mount state */
+    bool m_sdMounted = true;
 
     /* FW update state machine */
     enum class FwUpdateState {

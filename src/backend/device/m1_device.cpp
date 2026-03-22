@@ -6,11 +6,15 @@
 #include "protocol/rpc_protocol.h"
 
 #include <QDebug>
+#include <QDir>
+#include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QCryptographicHash>
+#include <QUrl>
 #include <cstring>
 
 M1Device::M1Device(QObject *parent)
@@ -338,6 +342,167 @@ void M1Device::makeDirectory(const QString &remotePath)
     QByteArray payload = remotePath.toUtf8();
     payload.append('\0');
     sendCommand(rpc::CMD_FILE_MKDIR, payload);
+}
+
+/* ──────────── Multi-File / Folder Upload ──────────── */
+
+void M1Device::uploadFiles(const QVariantList &fileUrls, const QString &remotePath)
+{
+    if (m_uploadQueueIndex >= 0 || m_fileUploadState != FileUploadState::Idle) {
+        emit fileOperationError("Upload already in progress");
+        return;
+    }
+
+    m_uploadQueue.clear();
+    m_mkdirQueue.clear();
+    m_mkdirQueueIndex = -1;
+
+    for (const QVariant &v : fileUrls) {
+        QString localPath = QUrl(v.toString()).toLocalFile();
+        if (localPath.isEmpty()) localPath = v.toString();
+        QString fileName = QFileInfo(localPath).fileName();
+        QString rp = remotePath;
+        if (!rp.endsWith("/")) rp += "/";
+        m_uploadQueue.append({localPath, rp + fileName});
+    }
+
+    if (m_uploadQueue.isEmpty()) {
+        emit fileOperationError("No files selected");
+        return;
+    }
+
+    qDebug() << "Multi-upload: queued" << m_uploadQueue.size() << "files";
+    startUploadQueue();
+}
+
+void M1Device::uploadFolder(const QString &localFolderUrl, const QString &remotePath)
+{
+    if (m_uploadQueueIndex >= 0 || m_fileUploadState != FileUploadState::Idle) {
+        emit fileOperationError("Upload already in progress");
+        return;
+    }
+
+    QString localFolder = QUrl(localFolderUrl).toLocalFile();
+    if (localFolder.isEmpty()) localFolder = localFolderUrl;
+
+    QDir baseDir(localFolder);
+    if (!baseDir.exists()) {
+        emit fileOperationError("Local folder not found: " + localFolder);
+        return;
+    }
+
+    QString baseName = baseDir.dirName();
+    QString remoteBase = remotePath;
+    if (!remoteBase.endsWith("/")) remoteBase += "/";
+    remoteBase += baseName;
+
+    QStringList dirs;
+    QList<UploadQueueItem> files;
+
+    dirs.append(remoteBase);
+
+    QDirIterator it(localFolder, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        QString relPath = baseDir.relativeFilePath(it.filePath());
+        QString remoteFull = remoteBase + "/" + relPath.replace("\\", "/");
+
+        if (it.fileInfo().isDir()) {
+            dirs.append(remoteFull);
+        } else {
+            files.append({it.filePath(), remoteFull});
+        }
+    }
+
+    // Sort dirs by path length so parents are created before children
+    std::sort(dirs.begin(), dirs.end(), [](const QString &a, const QString &b) {
+        return a.length() < b.length();
+    });
+
+    m_uploadQueue = files;
+    m_mkdirQueue = dirs;
+
+    if (dirs.isEmpty() && files.isEmpty()) {
+        emit fileOperationError("Folder is empty");
+        return;
+    }
+
+    qDebug() << "Folder upload:" << dirs.size() << "dirs," << files.size() << "files";
+
+    // Start creating directories first
+    if (!dirs.isEmpty()) {
+        m_mkdirQueueIndex = 0;
+        emit multiUploadProgress(0, files.size(), "Creating directories...");
+        m_pendingFileCmd = rpc::CMD_FILE_MKDIR;
+        QByteArray payload = dirs[0].toUtf8();
+        payload.append('\0');
+        sendCommand(rpc::CMD_FILE_MKDIR, payload);
+    } else {
+        startUploadQueue();
+    }
+}
+
+void M1Device::startUploadQueue()
+{
+    if (m_uploadQueue.isEmpty()) {
+        emit multiUploadComplete(0);
+        return;
+    }
+    m_uploadQueueIndex = 0;
+    auto &item = m_uploadQueue[0];
+    emit multiUploadProgress(1, m_uploadQueue.size(), QFileInfo(item.localPath).fileName());
+    uploadFile(item.localPath, item.remotePath);
+}
+
+void M1Device::advanceUploadQueue()
+{
+    m_uploadQueueIndex++;
+    if (m_uploadQueueIndex >= m_uploadQueue.size()) {
+        int total = m_uploadQueue.size();
+        m_uploadQueue.clear();
+        m_uploadQueueIndex = -1;
+        emit multiUploadComplete(total);
+        return;
+    }
+    auto &item = m_uploadQueue[m_uploadQueueIndex];
+    emit multiUploadProgress(m_uploadQueueIndex + 1, m_uploadQueue.size(),
+                             QFileInfo(item.localPath).fileName());
+    uploadFile(item.localPath, item.remotePath);
+}
+
+void M1Device::advanceMkdirQueue()
+{
+    m_mkdirQueueIndex++;
+    if (m_mkdirQueueIndex >= m_mkdirQueue.size()) {
+        m_mkdirQueue.clear();
+        m_mkdirQueueIndex = -1;
+        // All dirs created — start file uploads
+        if (!m_uploadQueue.isEmpty()) {
+            startUploadQueue();
+        } else {
+            emit multiUploadComplete(0);
+        }
+        return;
+    }
+    m_pendingFileCmd = rpc::CMD_FILE_MKDIR;
+    QByteArray payload = m_mkdirQueue[m_mkdirQueueIndex].toUtf8();
+    payload.append('\0');
+    sendCommand(rpc::CMD_FILE_MKDIR, payload);
+}
+
+/* ──────────── SD Card Mount/Unmount ──────────── */
+
+void M1Device::mountSdCard()
+{
+    m_pendingFileCmd = rpc::CMD_SD_MOUNT;
+    sendCommand(rpc::CMD_SD_MOUNT);
+}
+
+void M1Device::unmountSdCard()
+{
+    m_pendingFileCmd = rpc::CMD_SD_UNMOUNT;
+    sendCommand(rpc::CMD_SD_UNMOUNT);
 }
 
 /* ──────────── Firmware Update ──────────── */
@@ -974,7 +1139,11 @@ void M1Device::handleAck(const rpc::Frame & /*frame*/)
             m_fileUploadTimeout.stop();
             m_fileUploadState = FileUploadState::Idle;
             m_fileUploadData.clear();
-            emit fileUploadComplete();
+            if (m_uploadQueueIndex >= 0) {
+                advanceUploadQueue();
+            } else {
+                emit fileUploadComplete();
+            }
             return;
         default:
             break;
@@ -991,7 +1160,21 @@ void M1Device::handleAck(const rpc::Frame & /*frame*/)
         break;
     case rpc::CMD_FILE_MKDIR:
         qDebug() << "Mkdir confirmed";
-        emit fileMkdirComplete();
+        if (m_mkdirQueueIndex >= 0) {
+            advanceMkdirQueue();
+        } else {
+            emit fileMkdirComplete();
+        }
+        break;
+    case rpc::CMD_SD_UNMOUNT:
+        qDebug() << "SD unmount confirmed";
+        m_sdMounted = false;
+        emit sdMountChanged(false);
+        break;
+    case rpc::CMD_SD_MOUNT:
+        qDebug() << "SD mount confirmed";
+        m_sdMounted = true;
+        emit sdMountChanged(true);
         break;
     default:
         // Absorb stale ACK from a timed-out ESP32 flash attempt — only if
@@ -1118,12 +1301,16 @@ void M1Device::handleNack(const rpc::Frame &frame)
         return;
     }
 
-    // If file upload is in progress, abort it
+    // If file upload is in progress, abort it (and the queue)
     if (m_fileUploadState != FileUploadState::Idle) {
         qWarning() << "File upload aborted due to NACK:" << errMsg;
         m_fileUploadTimeout.stop();
         m_fileUploadState = FileUploadState::Idle;
         m_fileUploadData.clear();
+        m_uploadQueue.clear();
+        m_uploadQueueIndex = -1;
+        m_mkdirQueue.clear();
+        m_mkdirQueueIndex = -1;
         emit fileOperationError("Upload failed: " + errMsg);
         return;
     }
@@ -1169,6 +1356,11 @@ void M1Device::onTransportConnected(bool connected)
             m_fileUploadData.clear();
             emit fileOperationError("Device disconnected during file upload");
         }
+        m_uploadQueue.clear();
+        m_uploadQueueIndex = -1;
+        m_mkdirQueue.clear();
+        m_mkdirQueueIndex = -1;
+        m_sdMounted = true;  // reset to default on disconnect
         emit screenStreamingChanged(false);
 
         // If this was NOT user-initiated, tell discovery to forget the port

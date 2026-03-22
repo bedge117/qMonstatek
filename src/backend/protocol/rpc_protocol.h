@@ -62,6 +62,8 @@ constexpr uint8_t CMD_FILE_DELETE      = 0x37;
 constexpr uint8_t CMD_FILE_MKDIR       = 0x38;
 constexpr uint8_t CMD_FILE_INFO        = 0x39;
 constexpr uint8_t CMD_FILE_INFO_RESP   = 0x3A;
+constexpr uint8_t CMD_SD_UNMOUNT       = 0x3B;
+constexpr uint8_t CMD_SD_MOUNT         = 0x3C;
 
 /* ──────────── Firmware Commands (0x40–0x4F) ──────────── */
 constexpr uint8_t CMD_FW_INFO          = 0x40;
@@ -211,6 +213,8 @@ inline const char* cmdName(uint8_t cmd) {
         case CMD_CLI_RESP:         return "CLI_RESP";
         case CMD_ESP_UART_SNOOP:   return "ESP_UART_SNOOP";
         case CMD_ESP_UART_SNOOP_RESP: return "ESP_UART_SNOOP_RESP";
+        case CMD_SD_UNMOUNT:       return "SD_UNMOUNT";
+        case CMD_SD_MOUNT:         return "SD_MOUNT";
         default:                   return "UNKNOWN";
     }
 }
