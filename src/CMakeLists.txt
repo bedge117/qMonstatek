@@ -5,6 +5,10 @@ qt_add_executable(qmonstatek WIN32
     main.cpp
 )
 
+set_target_properties(qmonstatek PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
 # QML module
 qt_add_qml_module(qmonstatek
     URI QMonstatek
