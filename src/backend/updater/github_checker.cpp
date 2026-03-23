@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QDir>
 #include <QFile>
 #include <QDebug>
 #include <QRegularExpression>
@@ -234,7 +235,13 @@ bool GithubChecker::saveFileTo(const QString &src, const QString &dest)
 
 void GithubChecker::downloadAsset(const QUrl &url, const QString &destPath)
 {
-    m_downloadDest = destPath;
+    // If destPath is just a filename (no directory separator), put it in
+    // the system temp directory so we don't need write access to Program Files.
+    if (!destPath.contains('/') && !destPath.contains('\\')) {
+        m_downloadDest = QDir(QDir::tempPath()).filePath(destPath);
+    } else {
+        m_downloadDest = destPath;
+    }
 
     QNetworkRequest req{url};
     req.setHeader(QNetworkRequest::UserAgentHeader, "qMonstatek/1.0");
@@ -271,6 +278,22 @@ void GithubChecker::onDownloadReply(QNetworkReply *reply)
     }
 
     QByteArray data = reply->readAll();
+
+    // Clean up any previous firmware downloads in temp
+    QFileInfo destInfo(m_downloadDest);
+    if (destInfo.absolutePath() == QDir::tempPath()) {
+        QDir tmp(QDir::tempPath());
+        QString suffix = destInfo.suffix();  // e.g. "bin"
+        if (!suffix.isEmpty()) {
+            QStringList filters;
+            filters << "M1_v*." + suffix << "factory_ESP32*." + suffix;
+            for (const QString &old : tmp.entryList(filters, QDir::Files)) {
+                if (old != destInfo.fileName())
+                    QFile::remove(tmp.filePath(old));
+            }
+        }
+    }
+
     QFile outFile(m_downloadDest);
     if (!outFile.open(QIODevice::WriteOnly)) {
         emit downloadError("Cannot write to: " + m_downloadDest);

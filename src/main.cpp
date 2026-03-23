@@ -52,10 +52,10 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("qMonstatek");
     app.setOrganizationName("Monstatek");
-    app.setApplicationVersion("2.1.1");
+    app.setApplicationVersion("2.1.2");
 
-    // Open log file next to the executable
-    QString logPath = QCoreApplication::applicationDirPath() + "/qmonstatek.log";
+    // Open log file in temp directory (avoids write permission issues in Program Files)
+    QString logPath = QDir::tempPath() + "/qmonstatek.log";
     s_logFile = fopen(logPath.toLocal8Bit().constData(), "w");
 
     qInstallMessageHandler(msgHandler);

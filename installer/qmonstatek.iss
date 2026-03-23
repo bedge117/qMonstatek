@@ -10,7 +10,7 @@
 ;   Or CLI: iscc.exe qmonstatek.iss
 
 #define MyAppName "qMonstatek"
-#define MyAppVersion "2.1.1"
+#define MyAppVersion "2.1.2"
 #define MyAppPublisher "MonstaTek"
 #define MyAppExeName "qmonstatek.exe"
 #define MyAppURL "https://github.com/bedge117/qMonstatek"
