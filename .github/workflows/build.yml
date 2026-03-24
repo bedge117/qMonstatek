@@ -71,7 +71,8 @@ jobs:
           modules: 'qtserialport'
 
       - name: Generate 256x256 icon from source
-        run: convert qMonstatek.png -resize 256x256! -background transparent -gravity center -extent 256x256 src/resources/icons/app_icon.png
+        run: |
+          convert qMonstatek.png -resize 256x256! -background transparent -gravity center -extent 256x256 src/resources/icons/qmonstatek.png
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
@@ -95,7 +96,7 @@ jobs:
           ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --desktop-file src/resources/linux/qmonstatek.desktop \
-            --icon-file src/resources/icons/app_icon.png \
+            --icon-file src/resources/icons/qmonstatek.png \
             --plugin qt \
             --output appimage
           mv qMonstatek*.AppImage "qMonstatek_${GITHUB_REF_NAME}.AppImage"
