@@ -16,15 +16,26 @@ Item {
     // GitHub download state
     property string downloadedFilePath: ""
     property string downloadedFileName: ""
+    property string downloadedVersion: ""
     property bool downloading: false
     property int downloadPercent: 0
     property var releaseInfo: null
     property bool restoring: false
     property string restoreStatus: ""
 
+    // MD5 verification state
+    property string md5FilePath: ""
+    property string md5FileName: ""
+    property string md5Status: ""  // "", "verified", "mismatch", "error"
+    property string md5Computed: ""
+    property string md5Expected: ""
+
     // Manual file selection state
     property string selectedFilePath: ""
     property string selectedFileName: ""
+
+    // Size-mismatch warning (live sanity check)
+    property string sizeWarning: ""
 
     // Set by whichever flow triggers the flash
     property string flashFilePath: ""
@@ -79,20 +90,42 @@ Item {
         }
         function onDownloadComplete(filePath) {
             view.downloading = false
-            view.downloadedFilePath = filePath
             var parts = filePath.split(/[/\\]/)
             var fname = parts[parts.length - 1]
-            view.downloadedFileName = fname
-            // Auto-select flash offset based on filename
             var nameLower = fname.toLowerCase()
+
+            if (nameLower.endsWith(".md5")) {
+                // MD5 checksum file — store for verification, NOT as flash target
+                view.md5FilePath = filePath
+                view.md5FileName = fname
+                if (view.downloadedFilePath.length > 0)
+                    view.verifyMd5()
+                return
+            }
+
+            // Firmware binary
+            view.downloadedFilePath = filePath
+            view.downloadedFileName = fname
+            if (view.releaseInfo)
+                view.downloadedVersion = view.releaseInfo.version || ""
+
+            // Auto-select flash offset based on filename
             if (nameLower.indexOf("factory") >= 0) {
                 factoryRadio.checked = true
                 view.flashAddr = 0x00000
             } else {
-                // esp-at.bin or any non-factory → App-Only
                 appRadio.checked = true
                 view.flashAddr = 0x60000
             }
+
+            // Auto-verify against stored .md5 if available
+            if (view.md5FilePath.length > 0)
+                view.verifyMd5()
+            else
+                view.md5Status = ""
+
+            view.checkSizeWarning()
+
             if (view.restoring) {
                 view.restoring = false
                 view.restoreStatus = "Stock firmware downloaded. Ready to flash."
@@ -104,6 +137,47 @@ Item {
                 view.restoring = false
                 view.restoreStatus = "Download failed: " + message
             }
+        }
+    }
+
+    function checkSizeWarning() {
+        var path = view.downloadedFilePath.length > 0
+                   ? view.downloadedFilePath
+                   : view.selectedFilePath
+        if (path.length === 0) { view.sizeWarning = ""; return }
+
+        var size = esp32Checker.fileSize(path)
+        if (size <= 0) { view.sizeWarning = ""; return }
+
+        var kb = Math.round(size / 1024)
+        if (factoryRadio.checked && size < 4000 * 1024) {
+            view.sizeWarning = "This file is " + kb + " KB — too small for a factory image. " +
+                               "It may be an app-only image (flash at 0x60000)."
+        } else if (appRadio.checked && size >= 4000 * 1024) {
+            view.sizeWarning = "This file is " + kb + " KB — too large for app-only. " +
+                               "It may be a factory image (flash at 0x00000)."
+        } else {
+            view.sizeWarning = ""
+        }
+    }
+
+    function verifyMd5() {
+        // Only verify if base filenames match (e.g. factory_ESP32C6-SPI)
+        var binBase = view.downloadedFileName.replace(/\.bin$/i, "")
+        var md5Base = view.md5FileName.replace(/\.md5$/i, "")
+        if (binBase !== md5Base) {
+            view.md5Status = ""
+            return
+        }
+        var result = esp32Checker.verifyFileMd5(view.downloadedFilePath, view.md5FilePath)
+        if (result.error) {
+            view.md5Status = "error"
+            view.md5Computed = ""
+            view.md5Expected = ""
+        } else {
+            view.md5Computed = result.computed
+            view.md5Expected = result.expected
+            view.md5Status = result.match ? "verified" : "mismatch"
         }
     }
 
@@ -253,14 +327,14 @@ Item {
                         text: "Factory Image — bootloader + partition table + app (0x00000)"
                         checked: true
                         ButtonGroup.group: imageTypeGroup
-                        onCheckedChanged: if (checked) view.flashAddr = 0x00000
+                        onCheckedChanged: if (checked) { view.flashAddr = 0x00000; view.checkSizeWarning() }
                     }
 
                     RadioButton {
                         id: appRadio
                         text: "App-Only — application partition only (0x60000)"
                         ButtonGroup.group: imageTypeGroup
-                        onCheckedChanged: if (checked) view.flashAddr = 0x60000
+                        onCheckedChanged: if (checked) { view.flashAddr = 0x60000; view.checkSizeWarning() }
                     }
 
                     Label {
@@ -272,6 +346,16 @@ Item {
                         wrapMode: Text.WordWrap
                         font.pixelSize: 11
                         color: Material.hintTextColor
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        visible: view.sizeWarning.length > 0
+                        text: view.sizeWarning
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 12
+                        font.bold: true
+                        color: "#FF9800"
                         Layout.fillWidth: true
                     }
                 }
@@ -307,6 +391,12 @@ Item {
                                 view.releaseInfo = null
                                 view.downloadedFilePath = ""
                                 view.downloadedFileName = ""
+                                view.downloadedVersion = ""
+                                view.md5FilePath = ""
+                                view.md5FileName = ""
+                                view.md5Status = ""
+                                view.md5Computed = ""
+                                view.md5Expected = ""
                                 ghStatusLabel.visible = false
                                 ghStatusLabel.color = Material.hintTextColor
                                 esp32Checker.checkForUpdates(0, 0, 0, 0, 0)
@@ -351,35 +441,90 @@ Item {
                     }
 
                     // ── Downloaded firmware: ready to flash ──
-                    RowLayout {
+                    ColumnLayout {
                         visible: view.downloadedFileName.length > 0 && !view.downloading
-                        spacing: 12
+                        spacing: 4
 
-                        Label {
-                            text: "Downloaded: " + view.downloadedFileName
-                            font.pixelSize: 12
-                            color: "#4CAF50"
-                            Layout.fillWidth: true
-                        }
+                        RowLayout {
+                            spacing: 12
 
-                        Label {
-                            text: "Target: 0x" + view.flashAddr.toString(16).toUpperCase().padStart(5, "0")
-                                  + (factoryRadio.checked ? " (Factory)" : " (App-Only)")
-                            font.family: "Courier New"
-                            font.pixelSize: 12
-                            color: Material.hintTextColor
-                        }
+                            Label {
+                                text: "Downloaded: " + view.downloadedFileName +
+                                      (view.downloadedVersion.length > 0
+                                       ? "  (" + view.downloadedVersion + ")" : "")
+                                font.pixelSize: 12
+                                color: "#4CAF50"
+                                Layout.fillWidth: true
+                            }
 
-                        Button {
-                            text: "Flash ESP32"
-                            highlighted: true
-                            enabled: m1device.connected && !view.updating
-                            onClicked: {
-                                view.flashFilePath = view.downloadedFilePath
-                                view.flashFileName = view.downloadedFileName
-                                confirmDialog.open()
+                            Label {
+                                visible: view.md5Status === "verified"
+                                text: "MD5 Verified"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: "#4CAF50"
+                            }
+
+                            Label {
+                                visible: view.md5Status === "mismatch"
+                                text: "MD5 MISMATCH"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: "#F44336"
+                            }
+
+                            Label {
+                                visible: view.md5Status === "error"
+                                text: "MD5 Error"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: "#FF9800"
+                            }
+
+                            Label {
+                                text: "Target: 0x" + view.flashAddr.toString(16).toUpperCase().padStart(5, "0")
+                                      + (factoryRadio.checked ? " (Factory)" : " (App-Only)")
+                                font.family: "Courier New"
+                                font.pixelSize: 12
+                                color: Material.hintTextColor
+                            }
+
+                            Button {
+                                text: "Flash ESP32"
+                                highlighted: true
+                                enabled: m1device.connected && !view.updating
+                                         && view.md5Status !== "mismatch"
+                                onClicked: {
+                                    view.flashFilePath = view.downloadedFilePath
+                                    view.flashFileName = view.downloadedFileName
+                                    confirmDialog.open()
+                                }
                             }
                         }
+
+                        // MD5 mismatch detail
+                        Label {
+                            visible: view.md5Status === "mismatch"
+                            text: "Expected: " + view.md5Expected + "\nComputed: " + view.md5Computed
+                            font.family: "Courier New"
+                            font.pixelSize: 11
+                            color: "#F44336"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    // ── MD5 file downloaded but no .bin yet ──
+                    Label {
+                        visible: view.md5FileName.length > 0
+                                 && view.downloadedFilePath.length === 0
+                                 && !view.downloading
+                        text: "Checksum saved: " + view.md5FileName +
+                              " — download the .bin file to verify and flash"
+                        font.pixelSize: 12
+                        color: Material.hintTextColor
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
                 }
             }
@@ -448,8 +593,11 @@ Item {
                                 onClicked: {
                                     view.downloading = true
                                     view.downloadPercent = 0
-                                    view.downloadedFilePath = ""
-                                    view.downloadedFileName = ""
+                                    // Only clear .bin state when downloading a .bin
+                                    if (!modelData.name.toLowerCase().endsWith(".md5")) {
+                                        view.downloadedFilePath = ""
+                                        view.downloadedFileName = ""
+                                    }
                                     esp32Checker.downloadAsset(modelData.downloadUrl, modelData.name)
                                 }
                             }
@@ -572,6 +720,7 @@ Item {
             var parts = path.split(/[/\\]/)
             view.selectedFileName = parts[parts.length - 1]
             espStatusLabel.visible = false
+            view.checkSizeWarning()
         }
     }
 
@@ -590,11 +739,18 @@ Item {
                 font.bold: true
             }
             Label {
-                text: "File: " + view.flashFileName
+                text: "File: " + view.flashFileName +
+                      (view.downloadedVersion.length > 0
+                       ? "  (" + view.downloadedVersion + ")" : "")
             }
             Label {
                 text: "Flash address: 0x" + view.flashAddr.toString(16).toUpperCase().padStart(5, "0")
                       + (factoryRadio.checked ? " (Factory Image)" : " (App-Only)")
+            }
+            Label {
+                visible: view.md5Status === "verified"
+                text: "MD5: Verified"
+                color: "#4CAF50"
             }
             Label {
                 text: "This will connect to the ESP32 ROM bootloader, erase the\n" +

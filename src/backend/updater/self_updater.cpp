@@ -6,6 +6,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QProcess>
 #include <QDebug>
@@ -13,11 +14,34 @@
 SelfUpdater::SelfUpdater(QObject *parent)
     : QObject(parent)
 {
+    cleanupOldDownloads();
 }
 
 QString SelfUpdater::tempDir() const
 {
     return QDir::tempPath();
+}
+
+void SelfUpdater::cleanupOldDownloads()
+{
+    QDir tmp(QDir::tempPath());
+
+    // Delete any qMonstatek_*_setup.zip and qMonstatek_*_setup.exe
+    QStringList filters;
+    filters << "qMonstatek_*_setup.zip" << "qMonstatek_*_setup.exe";
+    QStringList files = tmp.entryList(filters, QDir::Files);
+    for (const QString &f : files) {
+        QString path = tmp.absoluteFilePath(f);
+        if (QFile::remove(path))
+            qInfo() << "SelfUpdater: cleaned up" << f;
+    }
+
+    // Delete the extraction folder
+    QDir extractDir(tmp.absoluteFilePath("qmonstatek_update"));
+    if (extractDir.exists()) {
+        if (extractDir.removeRecursively())
+            qInfo() << "SelfUpdater: cleaned up qmonstatek_update/";
+    }
 }
 
 QString SelfUpdater::extractSetupExe(const QString &zipPath)

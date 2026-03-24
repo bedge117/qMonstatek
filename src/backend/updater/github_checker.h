@@ -14,6 +14,7 @@
 #include <QString>
 #include <QUrl>
 #include <QJsonObject>
+#include <QCryptographicHash>
 
 class GithubChecker : public QObject {
     Q_OBJECT
@@ -40,6 +41,18 @@ public:
      * Copy a downloaded file to a user-chosen location.
      */
     Q_INVOKABLE bool saveFileTo(const QString &src, const QString &dest);
+
+    /**
+     * Verify a binary file against an .md5 checksum file.
+     * Returns JSON: { "match": bool, "computed": hex, "expected": hex }
+     * or { "error": message } on failure.
+     */
+    Q_INVOKABLE QJsonObject verifyFileMd5(const QString &binPath, const QString &md5Path);
+
+    /**
+     * Return file size in bytes, or -1 if the file doesn't exist.
+     */
+    Q_INVOKABLE qint64 fileSize(const QString &path);
 
     /**
      * Get/set the GitHub repository (format: "owner/repo").

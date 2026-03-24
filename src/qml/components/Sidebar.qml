@@ -5,27 +5,40 @@ import QtQuick.Layouts
 
 Rectangle {
     id: sidebar
-    Layout.preferredWidth: 200
+    Layout.preferredWidth: 180
     color: Material.backgroundColor
 
     signal navigated(string viewName)
 
-    property int selectedIndex: 0
+    property int selectedIndex: -1
+    readonly property bool showCompatibleItems: m1device.connected && m1device.hasDeviceInfo
 
     readonly property var menuItems: [
-        { name: "deviceInfo",     label: "Device Info",     icon: "ℹ",  section: "" },
-        { name: "screenMirror",   label: "Screen Mirror",   icon: "🖥", section: "" },
-        { name: "fileManager",    label: "File Manager",    icon: "📁", section: "" },
-        { name: "firmwareUpdate", label: "Firmware Update",  icon: "⬆", section: "Firmware" },
-        { name: "dualBoot",      label: "Dual Boot",        icon: "🔄", section: "" },
-        { name: "esp32Update",    label: "ESP32 Update",     icon: "📡", section: "" },
-        { name: "dfuFlash",      label: "DFU Flash",        icon: "⚡", section: "Recovery" },
-        { name: "swdRecovery",  label: "SWD Recovery",     icon: "🔧", section: "" },
-        { name: "debugTerminal", label: "Debug Terminal",    icon: ">",  section: "System" },
-        { name: "settings",      label: "Settings",         icon: "⚙", section: "" },
-        { name: "power",        label: "Power",            icon: "⏻", section: "" },
-        { name: "about",         label: "About",            icon: "?",  section: "" }
+        { name: "deviceInfo",     label: "Device Info",     icon: "ℹ",  section: "",         requires: "compatible" },
+        { name: "screenMirror",   label: "Screen Mirror",   icon: "🖥", section: "",         requires: "compatible" },
+        { name: "fileManager",    label: "File Manager",    icon: "📁", section: "",         requires: "compatible" },
+        { name: "firmwareUpdate", label: "Firmware Update",  icon: "⬆", section: "Firmware", requires: "compatible" },
+        { name: "dualBoot",      label: "Dual Boot",        icon: "🔄", section: "",         requires: "compatible" },
+        { name: "esp32Update",    label: "ESP32 Update",     icon: "📡", section: "",         requires: "compatible" },
+        { name: "dfuFlash",      label: "DFU Flash",        icon: "⚡", section: "Recovery", requires: "none" },
+        { name: "swdRecovery",  label: "SWD Recovery",     icon: "🔧", section: "",         requires: "none" },
+        { name: "debugTerminal", label: "Debug Terminal",    icon: ">",  section: "System",   requires: "compatible" },
+        { name: "settings",      label: "Settings",         icon: "⚙", section: "",         requires: "none" },
+        { name: "power",        label: "Power",            icon: "⏻", section: "",         requires: "compatible" },
+        { name: "about",         label: "About",            icon: "?",  section: "",         requires: "none" }
     ]
+
+    function isItemVisible(item) {
+        return item.requires !== "compatible" || showCompatibleItems
+    }
+
+    function hasVisibleItemBefore(idx) {
+        for (var i = 0; i < idx; i++) {
+            if (isItemVisible(menuItems[i]))
+                return true
+        }
+        return false
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -48,10 +61,11 @@ Rectangle {
             delegate: ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 0
+                visible: sidebar.isItemVisible(modelData)
 
-                // Section divider
+                // Section divider (only if there's a visible item above)
                 Rectangle {
-                    visible: modelData.section.length > 0
+                    visible: modelData.section.length > 0 && sidebar.hasVisibleItemBefore(index)
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
                     Layout.topMargin: 8
@@ -106,7 +120,7 @@ Rectangle {
                 anchors.centerIn: parent
                 text: m1device.connected
                       ? "Connected: " + m1device.portName
-                      : "Disconnected"
+                      : "Connect M1"
                 font.pixelSize: 11
                 color: "white"
             }

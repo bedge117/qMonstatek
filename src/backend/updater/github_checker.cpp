@@ -13,6 +13,7 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QCryptographicHash>
 
 GithubChecker::GithubChecker(QObject *parent)
     : QObject(parent)
@@ -298,4 +299,41 @@ void GithubChecker::onDownloadReply(QNetworkReply *reply)
     outFile.close();
 
     emit downloadComplete(m_downloadDest);
+}
+
+QJsonObject GithubChecker::verifyFileMd5(const QString &binPath, const QString &md5Path)
+{
+    QJsonObject result;
+
+    QFile binFile(binPath);
+    if (!binFile.open(QIODevice::ReadOnly)) {
+        result["error"] = "Cannot open binary file: " + binPath;
+        return result;
+    }
+    QByteArray computed = QCryptographicHash::hash(binFile.readAll(),
+                                                   QCryptographicHash::Md5).toHex();
+    binFile.close();
+
+    QFile md5File(md5Path);
+    if (!md5File.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        result["error"] = "Cannot open MD5 file: " + md5Path;
+        return result;
+    }
+    QString content = QString::fromUtf8(md5File.readAll()).trimmed();
+    md5File.close();
+
+    // Parse standard .md5 format: "hash  filename" or just "hash"
+    QString expected = content.split(QRegularExpression("\\s+")).first().toLower();
+
+    result["computed"] = QString(computed);
+    result["expected"] = expected;
+    result["match"]    = (QString(computed) == expected);
+
+    return result;
+}
+
+qint64 GithubChecker::fileSize(const QString &path)
+{
+    QFileInfo fi(path);
+    return fi.exists() ? fi.size() : -1;
 }

@@ -32,6 +32,7 @@ signals:
 
 private:
     QString extractSetupExe(const QString &zipPath);
+    void    cleanupOldDownloads();
 };
 
 #endif // SELF_UPDATER_H

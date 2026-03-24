@@ -8,9 +8,9 @@ import "views"
 ApplicationWindow {
     id: root
     width: 960
-    height: 640
+    height: 740
     minimumWidth: 800
-    minimumHeight: 560
+    minimumHeight: 660
     visible: true
     title: "qMonstatek" + (m1device.connected ? " — " + m1device.portName : "")
 
@@ -63,6 +63,75 @@ ApplicationWindow {
             SettingsView       { id: settingsView }        // 9
             PowerView          { id: powerView }           // 10
             AboutView          { id: aboutView }           // 11
+
+            // ── Connect Prompt (shown when no device connected) ── // 12
+            Item {
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 16
+
+                    Label {
+                        text: m1device.connected ? "Connecting..." : "Connect M1"
+                        font.pixelSize: 28
+                        font.bold: true
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Label {
+                        text: m1device.connected
+                              ? "Reading device info..."
+                              : "Connect your M1 device to get started.\nDFU Flash and SWD Recovery are available without a connection."
+                        font.pixelSize: 14
+                        color: Material.hintTextColor
+                        horizontalAlignment: Text.AlignHCenter
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Button {
+                        visible: !m1device.connected
+                        text: "Connect"
+                        highlighted: true
+                        Layout.alignment: Qt.AlignHCenter
+                        onClicked: deviceSelector.open()
+                    }
+                }
+            }
+
+            // ── Incompatible Firmware (connected but no RPC support) ── // 13
+            Item {
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 16
+
+                    Label {
+                        text: "Incompatible Firmware"
+                        font.pixelSize: 28
+                        font.bold: true
+                        color: "#FF9800"
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Label {
+                        text: "Connected to " + m1device.portName + ", but the installed firmware\n" +
+                              "is not compatible with this application.\n\n" +
+                              "Use DFU Flash or SWD Recovery to install compatible firmware."
+                        font.pixelSize: 14
+                        color: Material.hintTextColor
+                        horizontalAlignment: Text.AlignHCenter
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Button {
+                        text: "Go to DFU Flash"
+                        highlighted: true
+                        Layout.alignment: Qt.AlignHCenter
+                        onClicked: {
+                            contentStack.currentIndex = viewIndex("dfuFlash")
+                            sidebar.selectedIndex = 6
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -90,18 +159,46 @@ ApplicationWindow {
         }
     }
 
-    // ── Auto-refresh the active view when device connects ──
+    // Views that require compatible firmware
+    function viewRequiresCompatible(idx) {
+        return idx <= 5 || idx === 8 || idx === 10
+    }
+
+    // ── Auto-navigate on connection state changes ──
     Connections {
         target: m1device
         function onConnectionChanged(connected) {
             if (connected) {
                 m1device.requestDeviceInfo()
-                refreshCurrentView()
-                // Safety net: M1's USB CDC re-enumerates before RPC is ready
-                // after reboot/bank-swap.  Retry after 2s to catch the slow case.
                 reconnectRefreshTimer.restart()
             } else {
                 reconnectRefreshTimer.stop()
+                incompatibleCheckTimer.stop()
+                // Navigate away from device-dependent views
+                var idx = contentStack.currentIndex
+                if (viewRequiresCompatible(idx) || idx === 13) {
+                    contentStack.currentIndex = 12
+                    sidebar.selectedIndex = -1
+                }
+            }
+        }
+        function onDeviceInfoUpdated() {
+            if (!m1device.connected) return
+            if (m1device.hasDeviceInfo) {
+                // Compatible firmware detected
+                incompatibleCheckTimer.stop()
+                if (contentStack.currentIndex === 12 || contentStack.currentIndex === 13) {
+                    contentStack.currentIndex = 0
+                    sidebar.selectedIndex = 0
+                }
+                refreshCurrentView()
+            } else {
+                // Got a response but no valid firmware version — incompatible
+                incompatibleCheckTimer.stop()
+                if (contentStack.currentIndex === 12) {
+                    contentStack.currentIndex = 13
+                    sidebar.selectedIndex = -1
+                }
             }
         }
     }
@@ -113,6 +210,24 @@ ApplicationWindow {
             if (m1device.connected) {
                 m1device.requestDeviceInfo()
                 refreshCurrentView()
+                // If still no device info, start the incompatible fallback timer
+                if (!m1device.hasDeviceInfo)
+                    incompatibleCheckTimer.restart()
+            }
+        }
+    }
+
+    // Fallback: if stock firmware never responds to RPC, switch to incompatible view
+    Timer {
+        id: incompatibleCheckTimer
+        interval: 3000
+        onTriggered: {
+            if (m1device.connected && !m1device.hasDeviceInfo) {
+                var idx = contentStack.currentIndex
+                if (idx === 12 || viewRequiresCompatible(idx)) {
+                    contentStack.currentIndex = 13
+                    sidebar.selectedIndex = -1
+                }
             }
         }
     }
@@ -175,5 +290,13 @@ ApplicationWindow {
         sequence: "Escape"
         enabled: contentStack.currentIndex === 1 && m1device.connected
         onActivated: m1device.buttonClick(5)  // BUTTON_BACK
+    }
+
+    // Start on the Connect prompt
+    Component.onCompleted: {
+        if (!m1device.connected) {
+            contentStack.currentIndex = 12
+            sidebar.selectedIndex = -1
+        }
     }
 }
