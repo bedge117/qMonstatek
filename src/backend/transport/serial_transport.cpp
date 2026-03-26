@@ -5,6 +5,11 @@
 #include "serial_transport.h"
 
 #include <QDebug>
+#ifdef Q_OS_LINUX
+#include <QFileInfo>
+#include <unistd.h>
+#include <grp.h>
+#endif
 
 SerialTransport::SerialTransport(QObject *parent)
     : QObject(parent)
@@ -36,6 +41,17 @@ bool SerialTransport::open(const QString &portName)
     if (!m_port.open(QIODevice::ReadWrite)) {
         QString err = QString("Failed to open %1: %2")
                           .arg(portName, m_port.errorString());
+#ifdef Q_OS_LINUX
+        /* Check if this is a permissions issue and give actionable guidance */
+        QFileInfo fi(portName.startsWith("/") ? portName : ("/dev/" + portName));
+        if (fi.exists() && !fi.isWritable()) {
+            QString group = fi.group();
+            if (group.isEmpty()) group = "dialout";
+            err += QString("\n\nOn Linux, serial ports require group membership. Run:\n"
+                           "  sudo usermod -aG %1 $USER\n"
+                           "then log out and back in.").arg(group);
+        }
+#endif
         qWarning() << err;
         emit errorOccurred(err);
         return false;

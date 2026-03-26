@@ -14,6 +14,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QCryptographicHash>
+#include <QSslSocket>
 
 GithubChecker::GithubChecker(QObject *parent)
     : QObject(parent)
@@ -116,6 +117,23 @@ void GithubChecker::checkForUpdates(int fwMajor, int fwMinor,
     qDebug() << "[UpdateCheck] Checking" << apiUrl
              << "current:" << fwMajor << fwMinor << fwBuild << fwRC
              << "C3." << c3Revision;
+
+    if (!QSslSocket::supportsSsl()) {
+        qWarning() << "[UpdateCheck] TLS/SSL not available."
+                    << "Build:" << QSslSocket::sslLibraryBuildVersionString()
+                    << "Runtime:" << QSslSocket::sslLibraryVersionString();
+#ifdef Q_OS_LINUX
+        emit checkError("TLS not available. Install OpenSSL:\n"
+                        "  sudo pacman -S openssl   (Arch/EndeavourOS)\n"
+                        "  sudo apt install libssl-dev   (Debian/Ubuntu)\n"
+                        "Then restart the application.");
+#else
+        emit checkError("TLS initialization failed. OpenSSL libraries not found.");
+#endif
+        m_checking = false;
+        emit checkingChanged();
+        return;
+    }
 
     QNetworkRequest req{QUrl(apiUrl)};
     req.setHeader(QNetworkRequest::UserAgentHeader, "qMonstatek/1.0");

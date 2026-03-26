@@ -99,6 +99,14 @@ void DfuFlasher::scanOnce()
 #ifdef _WIN32
         setStatus("DFU flash tool not found. Check that stm32prog/ folder "
                   "exists next to qmonstatek.exe, or install STM32CubeProgrammer.");
+#elif defined(Q_OS_LINUX)
+        setStatus("STM32_Programmer_CLI not found.\n"
+                  "Install STM32CubeProgrammer from st.com and ensure the CLI "
+                  "is in your PATH:\n"
+                  "  export PATH=$PATH:/opt/st/STM32CubeProgrammer/bin\n"
+                  "Or create a symlink:\n"
+                  "  sudo ln -s /opt/st/STM32CubeProgrammer/bin/STM32_Programmer_CLI "
+                  "/usr/local/bin/STM32_Programmer_CLI");
 #else
         setStatus("STM32CubeProgrammer not found. Install it from st.com.");
 #endif

@@ -49,10 +49,17 @@ static void msgHandler(QtMsgType type, const QMessageLogContext &ctx, const QStr
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_LINUX
+    /* Force Qt's built-in file dialog on Linux to avoid crashes when the
+     * native freedesktop.org D-Bus file chooser is unavailable (common in
+     * AppImage environments). */
+    qputenv("QT_QPA_NO_NATIVE_FILE_DIALOG", "1");
+#endif
+
     QApplication app(argc, argv);
     app.setApplicationName("qMonstatek");
     app.setOrganizationName("Monstatek");
-    app.setApplicationVersion("2.2.2");
+    app.setApplicationVersion("2.2.3");
 
     // Open log file in temp directory (avoids write permission issues in Program Files)
     QString logPath = QDir::tempPath() + "/qmonstatek.log";
