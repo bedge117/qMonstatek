@@ -13,6 +13,8 @@ Desktop companion app for the [Monstatek M1](https://monstatek.com) multi-tool d
 
 No installation required. All dependencies are included in the zip.
 
+**Linux users (Arch based distorbutions) that experience issues with the AppImage, build from source with the directions below.**
+
 ### Features
 
 - **Device Info** — View firmware version, battery status, SD card, ESP32 status
@@ -65,7 +67,7 @@ The RPC protocol uses a simple frame format over the CDC serial link. See the so
 
 The DFU Flash feature works with **any** firmware — it uses the STM32H573's built-in ROM bootloader and ST's CubeProgrammer API. No RPC integration needed.
 
-### Building from Source
+### Building from Source (Windows)
 
 **Requirements:**
 - Qt 6.4+ (MinGW 64-bit)
@@ -88,6 +90,44 @@ gcc -O2 -o tools/stm32_dfu_flash.exe tools/stm32_dfu_flash.c
 ```
 
 Place `stm32_dfu_flash.exe` in a `stm32prog/` folder next to the main executable, along with the CubeProgrammer API DLLs and `Data_Base/` directory. See the [STM32CubeProgrammer API documentation](https://www.st.com/en/development-tools/stm32cubeprog.html) for the required files.
+
+### Building from Source (Linux)
+
+**Requirements:**
+- Qt 6 (Core, Gui, Quick, SerialPort, Network, Widgets)
+- CMake 3.21+
+- GCC / Make
+
+On Arch Linux / EndeavourOS, install the dependencies:
+\`\`\`bash
+sudo pacman -S base-devel cmake qt6-base qt6-declarative qt6-serialport
+\`\`\`
+
+**Build:**
+\`\`\`bash
+cd qMonstatek
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+\`\`\`
+
+The executable will be generated at `build/src/qmonstatek`.
+
+**Linux Device Permissions:**
+To allow the application to communicate with the M1 over USB without requiring `root` or `sudo`:
+1. Ensure your user is added to the `uucp` or `dialout` group (depending on your distro):
+   \`\`\`bash
+   sudo usermod -aG uucp $USER
+   \`\`\`
+   *(You must log out and log back in for this to take effect).*
+
+2. **DFU Flash Helper:** Install `STM32CubeProgrammer` (e.g., `yay -S stm32cubeprog` on Arch) and ensure the `STM32_Programmer_CLI` is in your system PATH or installed to `/opt/st/STM32CubeProgrammer/bin/`. 
+3. **udev Rules:** Ensure you have the proper udev rules installed (usually `/etc/udev/rules.d/99-stm32-dfu.rules`) for `0483:df11` to allow user-space DFU flashing (These are included with `STM32CubeProgrammer` in the Drivers/rules/ directory with instructions). Additionally, you can run the following:
+   \`\`\`bash
+   echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="df11", MODE="0666"' | sudo tee /etc/udev/rules.d/99-stm32-dfu.rules
+   sudo udevadm control --reload-rules && sudo udevadm trigger
+   \`\`\`
+
 
 ## License
 
