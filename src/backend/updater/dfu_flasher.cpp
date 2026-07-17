@@ -145,8 +145,9 @@ void DfuFlasher::onScanFinished(int exitCode, QProcess::ExitStatus exitStatus)
     if (m_useCliDirect) {
         // Parse STM32_Programmer_CLI output
         QString allOutput = output + errOutput;
-        if (exitCode == 0 && (allOutput.contains("Device Index") ||
-                              allOutput.contains("STM32H5"))) {
+        // Removed exit code check due to linux not exiting clean
+        if (allOutput.contains("Device Index") ||
+            allOutput.contains("STM32H5")) {
             // Extract device info from output
             QString display = "STM32 DFU device detected";
             QRegularExpression snRe("Serial number\\s*:\\s*(\\S+)",
