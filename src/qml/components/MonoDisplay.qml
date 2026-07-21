@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import Monstatek.Backend 1.0
 
 /*
  * MonoDisplay — Renders the 128x64 M1 screen upscaled with LCD appearance.
@@ -11,18 +12,16 @@ Item {
     implicitWidth: 512
     implicitHeight: 256
 
-    // The screen image from M1Device (already upscaled 4x)
-    Image {
-        id: screenImage
+    // Finished (already-upscaled) frames are PUSHED from M1Device — no image
+    // provider pull, no conversion on the GUI thread (COMMS_REBUILD_SPEC §7).
+    ScreenCanvas {
+        id: screenCanvas
         anchors.fill: parent
-        cache: false
-        smooth: false  // nearest-neighbor for crisp pixels
-        fillMode: Image.PreserveAspectFit
 
-        // Bind to ScreenImageProvider — the query string forces reload on each frame
-        source: m1device.screenStreaming
-                ? "image://screen/frame?" + m1device.screenFrameCount
-                : ""
+        Connections {
+            target: m1device
+            function onScreenImageReady(image) { screenCanvas.setFrame(image) }
+        }
     }
 
     // LCD bezel effect

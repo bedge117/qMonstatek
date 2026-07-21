@@ -297,6 +297,11 @@ Item {
                         onClicked: m1device.initEsp32()
                     }
                     Button {
+                        text: "Reboot ESP"
+                        enabled: m1device.connected && !view.updating
+                        onClicked: m1device.rebootEsp32()
+                    }
+                    Button {
                         text: "Refresh"
                         enabled: m1device.connected
                         onClicked: {
@@ -625,7 +630,11 @@ Item {
                         Button {
                             text: "Select File..."
                             enabled: m1device.connected && !view.updating
-                            onClicked: espFileDialog.open()
+                            onClicked: {
+                                var f = uiSettings.dialogFolder("espOpen")
+                                if (f != "") espFileDialog.currentFolder = f
+                                espFileDialog.open()
+                            }
                         }
 
                         Label {
@@ -714,7 +723,12 @@ Item {
         id: espFileDialog
         title: "Select ESP32 Firmware Binary"
         nameFilters: ["Binary files (*.bin)", "All files (*)"]
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("espOpen")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("espOpen", currentFolder)
             var path = selectedFile.toString().replace(root.filePathFilter, "")
             view.selectedFilePath = path
             var parts = path.split(/[/\\]/)

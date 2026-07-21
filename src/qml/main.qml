@@ -35,6 +35,11 @@ ApplicationWindow {
             id: sidebar
             Layout.fillHeight: true
             onNavigated: function(viewName) {
+                // Stop screen stream when leaving Screen Mirror view
+                if (contentStack.currentIndex === 1 && viewIndex(viewName) !== 1) {
+                    if (m1device.screenStreaming)
+                        m1device.stopScreenStream()
+                }
                 contentStack.currentIndex = viewIndex(viewName)
                 refreshView(viewName)
             }
@@ -161,9 +166,12 @@ ApplicationWindow {
         }
     }
 
-    // Views that require compatible firmware
+    // Views that require compatible firmware.
+    // Debug Terminal (8) is intentionally NOT here: its Debug Log tab shows
+    // app-side logs that exist regardless of connection, so it must stay open
+    // when the M1 drops (the CLI controls inside gray out on their own).
     function viewRequiresCompatible(idx) {
-        return idx <= 5 || idx === 8 || idx === 10
+        return idx <= 5 || idx === 10
     }
 
     // ── Auto-navigate on connection state changes ──
@@ -173,6 +181,12 @@ ApplicationWindow {
             if (connected) {
                 m1device.requestDeviceInfo()
                 reconnectRefreshTimer.restart()
+                // WiFi connections prove compatible firmware — go straight to device info
+                if (m1device.connectionType === "WiFi") {
+                    incompatibleCheckTimer.stop()
+                    contentStack.currentIndex = 0
+                    sidebar.selectedIndex = 0
+                }
             } else {
                 reconnectRefreshTimer.stop()
                 incompatibleCheckTimer.stop()
@@ -193,7 +207,8 @@ ApplicationWindow {
                     contentStack.currentIndex = 0
                     sidebar.selectedIndex = 0
                 }
-                refreshCurrentView()
+                // Don't call refreshCurrentView() here — it triggers requestDeviceInfo()
+                // which creates an infinite loop: request → response → updated → request
             } else {
                 // Got a response but no valid firmware version — incompatible
                 incompatibleCheckTimer.stop()
@@ -212,8 +227,8 @@ ApplicationWindow {
             if (m1device.connected) {
                 m1device.requestDeviceInfo()
                 refreshCurrentView()
-                // If still no device info, start the incompatible fallback timer
-                if (!m1device.hasDeviceInfo)
+                // If still no device info (USB only — WiFi proves compatibility)
+                if (!m1device.hasDeviceInfo && m1device.connectionType !== "WiFi")
                     incompatibleCheckTimer.restart()
             }
         }

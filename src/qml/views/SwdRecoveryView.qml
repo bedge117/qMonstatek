@@ -342,7 +342,11 @@ Item {
                         Button {
                             text: "Select File..."
                             enabled: !swdRecovery.running
-                            onClicked: fileDialog.open()
+                            onClicked: {
+                                var f = uiSettings.dialogFolder("swdOpen")
+                                if (f != "") fileDialog.currentFolder = f
+                                fileDialog.open()
+                            }
                         }
 
                         Label {
@@ -715,7 +719,12 @@ Item {
         id: fileDialog
         title: "Select Firmware Binary"
         nameFilters: ["Binary files (*.bin)", "All files (*)"]
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("swdOpen")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("swdOpen", currentFolder)
             var path = selectedFile.toString().replace(root.filePathFilter, "")
             view.selectedFilePath = path
             var parts = path.split(/[/\\]/)

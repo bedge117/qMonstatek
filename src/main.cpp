@@ -11,10 +11,14 @@
 #include <cstdio>
 #include <QStandardPaths>
 #include <QDir>
+#include <QtQml>
 
 #include "device/m1_device.h"
-#include "device/screen_image_provider.h"
+#include "device/screen_canvas.h"
+#include "protocol/rpc_frame.h"
 #include "device/log_model.h"
+#include "ui_settings.h"
+#include "transport/mdns_discovery.h"
 #include "updater/github_checker.h"
 #include "updater/self_updater.h"
 #include "updater/dfu_flasher.h"
@@ -59,7 +63,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("qMonstatek");
     app.setOrganizationName("Monstatek");
-    app.setApplicationVersion("2.2.3");
+    app.setApplicationVersion("2.5.3");
 
     // Open log file in temp directory (avoids write permission issues in Program Files)
     QString logPath = QDir::tempPath() + "/qmonstatek.log";
@@ -74,6 +78,13 @@ int main(int argc, char *argv[])
 
     QQuickStyle::setStyle("Material");
 
+    // Allow rpc::Frame + QImage to cross the worker→GUI thread boundary via
+    // queued signal/slot connections (COMMS_REBUILD_SPEC §7).
+    qRegisterMetaType<rpc::Frame>("rpc::Frame");
+
+    // Push-render item for the screen mirror (replaces the image-provider pull).
+    qmlRegisterType<ScreenCanvas>("Monstatek.Backend", 1, 0, "ScreenCanvas");
+
     // Create backend objects
     M1Device device;
     GithubChecker githubChecker;
@@ -85,16 +96,14 @@ int main(int argc, char *argv[])
     SelfUpdater selfUpdater;
     DfuFlasher dfuFlasher;
     SwdRecovery swdRecovery;
+    MdnsDiscovery mdnsDiscovery;
+    device.setMdnsDiscovery(&mdnsDiscovery);   // WiFi auto-reconnect re-resolve
     LogModel logModel;
     setGlobalLogModel(&logModel);
+    UiSettings uiSettings;
 
     // Set up QML engine
     QQmlApplicationEngine engine;
-
-    // Register screen image provider (engine takes ownership)
-    auto *screenProvider = new ScreenImageProvider;
-    screenProvider->setDevice(&device);
-    engine.addImageProvider("screen", screenProvider);
 
     // Expose backend to QML
     engine.rootContext()->setContextProperty("m1device", &device);
@@ -105,7 +114,9 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("dfuFlasher", &dfuFlasher);
     engine.rootContext()->setContextProperty("swdRecovery", &swdRecovery);
     engine.rootContext()->setContextProperty("deviceDiscovery", device.discovery());
+    engine.rootContext()->setContextProperty("mdnsDiscovery", &mdnsDiscovery);
     engine.rootContext()->setContextProperty("appLog", &logModel);
+    engine.rootContext()->setContextProperty("uiSettings", &uiSettings);
 
     // Load main QML
     const QUrl url(QStringLiteral("qrc:/QMonstatek/qml/main.qml"));

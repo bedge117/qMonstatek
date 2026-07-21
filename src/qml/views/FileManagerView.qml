@@ -161,21 +161,22 @@ Item {
     }
 
     function navigateTo(name) {
-        var newPath = currentPath
-        if (!newPath.endsWith("/")) newPath += "/"
-        newPath += name
-        currentPath = newPath
-        view.statusText = "Navigating to: " + newPath + " ..."
-        m1device.requestFileList(newPath)
+        // Do NOT commit currentPath here. onFileListReceived sets it from the
+        // path the device echoes back, so a failed listing can never advance
+        // the path (which previously produced 0:/IR/IR/IR runaway).
+        var target = currentPath
+        if (!target.endsWith("/")) target += "/"
+        target += name
+        view.statusText = "Navigating to: " + target + " ..."
+        m1device.requestFileList(target)
     }
 
     function navigateUp() {
-        var parts = currentPath.split("/")
+        var parts = currentPath.replace(/\/+$/, "").split("/")
         parts.pop()
-        if (parts.length < 1) parts = ["0:"]
-        currentPath = parts.join("/") + "/"
-        view.statusText = "Navigating up to: " + currentPath + " ..."
-        m1device.requestFileList(currentPath)
+        var target = (parts.length < 1 || parts[0] === "") ? "0:/" : parts.join("/") + "/"
+        view.statusText = "Navigating up to: " + target + " ..."
+        m1device.requestFileList(target)
     }
 
     function bulkDelete(names) {
@@ -206,12 +207,20 @@ Item {
             Button {
                 text: "Upload Files"
                 enabled: m1device.connected && m1device.sdMounted
-                onClicked: uploadDialog.open()
+                onClicked: {
+                    var f = uiSettings.dialogFolder("fileUpload")
+                    if (f != "") uploadDialog.currentFolder = f
+                    uploadDialog.open()
+                }
             }
             Button {
                 text: "Upload Folder"
                 enabled: m1device.connected && m1device.sdMounted
-                onClicked: folderUploadDialog.open()
+                onClicked: {
+                    var f = uiSettings.dialogFolder("folderUpload")
+                    if (f != "") folderUploadDialog.currentFolder = f
+                    folderUploadDialog.open()
+                }
             }
             Button {
                 text: "New Folder"
@@ -395,6 +404,8 @@ Item {
                         font.pixelSize: 14
                         onClicked: {
                             downloadDialog.remotePath = buildRemotePath(modelData.name)
+                            var f = uiSettings.dialogFolder("fileDownload")
+                            if (f != "") downloadDialog.currentFolder = f
                             downloadDialog.open()
                         }
                     }
@@ -450,7 +461,12 @@ Item {
         id: uploadDialog
         title: "Select Files to Upload"
         fileMode: FileDialog.OpenFiles
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("fileUpload")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("fileUpload", currentFolder)
             if (selectedFiles.length === 1) {
                 var localPath = selectedFiles[0].toString().replace(root.filePathFilter, "")
                 var fileName = localPath.split("/").pop().split("\\").pop()
@@ -464,7 +480,12 @@ Item {
     FolderDialog {
         id: folderUploadDialog
         title: "Select Folder to Upload"
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("folderUpload")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("folderUpload", currentFolder)
             m1device.uploadFolder(selectedFolder.toString(), currentPath)
         }
     }
@@ -540,7 +561,12 @@ Item {
         property string remotePath: ""
         title: "Save File As"
         fileMode: FileDialog.SaveFile
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("fileDownload")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("fileDownload", currentFolder)
             var localPath = selectedFile.toString().replace(root.filePathFilter, "")
             m1device.downloadFile(remotePath, localPath)
         }

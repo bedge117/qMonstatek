@@ -11,13 +11,18 @@
 #include <QObject>
 #include <QImage>
 #include <QTimer>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonObject>
 
 #include "device_info.h"
 #include "screen_buffer.h"
+#include "transport/abstract_transport.h"
 #include "transport/serial_transport.h"
+#include "transport/tcp_transport.h"
+#include "transport/wifi_transport.h"
 #include "transport/device_discovery.h"
+#include "transport/mdns_discovery.h"
 #include "protocol/rpc_frame.h"
 #include "protocol/rpc_protocol.h"
 
@@ -27,6 +32,7 @@ class M1Device : public QObject {
     /* Properties exposed to QML */
     Q_PROPERTY(bool connected READ isConnected NOTIFY connectionChanged)
     Q_PROPERTY(QString portName READ portName NOTIFY connectionChanged)
+    Q_PROPERTY(QString connectionType READ connectionType NOTIFY connectionChanged)
     Q_PROPERTY(QString firmwareVersion READ firmwareVersion NOTIFY deviceInfoUpdated)
     Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY deviceInfoUpdated)
     Q_PROPERTY(bool batteryCharging READ batteryCharging NOTIFY deviceInfoUpdated)
@@ -51,15 +57,40 @@ class M1Device : public QObject {
     Q_PROPERTY(bool screenStreaming READ isScreenStreaming NOTIFY screenStreamingChanged)
     Q_PROPERTY(QImage screenImage READ screenImage NOTIFY screenFrameReceived)
     Q_PROPERTY(int screenFrameCount READ screenFrameCount NOTIFY screenFrameReceived)
+    Q_PROPERTY(bool logToFile READ logToFile WRITE setLogToFile NOTIFY logToFileChanged)
+    Q_PROPERTY(QString logFilePath READ logFilePath WRITE setLogFilePath NOTIFY logFilePathChanged)
+    Q_PROPERTY(bool deviceLogVerbose READ deviceLogVerbose WRITE setDeviceLogVerbose NOTIFY deviceLogVerboseChanged)
+    Q_PROPERTY(bool legacyCompatMode READ legacyCompatMode NOTIFY legacyCompatModeChanged)
 
 public:
     explicit M1Device(QObject *parent = nullptr);
 
     /* Connection */
     Q_INVOKABLE bool connectToDevice(const QString &portName);
+    Q_INVOKABLE bool connectToDeviceWifi(const QString &hostPort);
     Q_INVOKABLE void disconnect();
     bool isConnected() const;
     QString portName() const;
+    QString connectionType() const;
+
+    /* Debug log capture to file (opt-in; OFF by default). When enabled, raw M1
+     * log bytes are appended to logFilePath. setLogFilePath accepts a plain path
+     * or a file:// URL (from a QML FileDialog). */
+    bool logToFile() const { return m_logToFile; }
+    QString logFilePath() const { return m_logFilePath; }
+    Q_INVOKABLE void setLogToFile(bool enabled);
+    Q_INVOKABLE void setLogFilePath(const QString &path);
+
+    /* Device-side UART log verbosity. OFF (default) keeps the M1 at WARN so its
+     * UART isn't flooded with m1link/RPC INFO traces; ON raises it to INFO for a
+     * capture. Persisted, and re-sent to the device on each (re)connect. */
+    bool deviceLogVerbose() const { return m_deviceLogVerbose; }
+    Q_INVOKABLE void setDeviceLogVerbose(bool on);
+
+    /* True when the connected device speaks the legacy (pre-fix) CRC — i.e. its
+     * firmware predates the CRC-table fix. qMonstatek talks to it in a
+     * compatibility mode so the user can push the fixing update without DFU. */
+    bool legacyCompatMode() const { return m_legacyCompatMode; }
 
     /* Device info */
     Q_INVOKABLE void requestDeviceInfo();
@@ -91,7 +122,7 @@ public:
     Q_INVOKABLE void captureScreen();
     Q_INVOKABLE bool saveScreenshot(const QString &filePath);
     bool isScreenStreaming() const { return m_screenStreaming; }
-    QImage screenImage() const { return m_screenBuffer.toImage(); }
+    QImage screenImage() const { return m_lastScreenImage; }
     int screenFrameCount() const { return m_screenFrameCount; }
 
     /* Remote control */
@@ -125,6 +156,7 @@ public:
     /* ESP32 update */
     Q_INVOKABLE void requestEspInfo();
     Q_INVOKABLE void initEsp32();
+    Q_INVOKABLE void rebootEsp32();
     Q_INVOKABLE void startEspUpdate(const QString &binFilePath, uint32_t flashAddr);
 
     /* Debug / CLI terminal */
@@ -134,12 +166,22 @@ public:
     /* Device discovery */
     DeviceDiscovery* discovery() { return &m_discovery; }
 
+    /* mDNS browser used to re-resolve the WiFi target on auto-reconnect.
+     * Wired from main.cpp (not owned). */
+    void setMdnsDiscovery(MdnsDiscovery *mdns);
+
 signals:
     void connectionChanged(bool connected);
     void deviceInfoUpdated();
     void screenFrameReceived();
+    void screenImageReady(QImage image);   // push: finished, upscaled screen frame
     void screenStreamingChanged(bool streaming);
     void pongReceived(int latencyMs);
+    void logToFileChanged(bool enabled);
+    void logFilePathChanged(QString path);
+    void deviceLogVerboseChanged(bool on);
+    void legacyCompatModeChanged(bool legacy);
+    void legacyFirmwareDetected();   // one-shot: old firmware seen, prompt to update
 
     /* File signals */
     void fileListReceived(const QString &path, const QJsonArray &entries);
@@ -174,6 +216,7 @@ signals:
     /* Debug / CLI */
     void cliResponseReceived(const QString &response);
     void espUartSnoopReceived(const QString &output);
+    void m1LogReceived(const QString &line);
 
     /* General */
     void errorOccurred(const QString &message);
@@ -184,6 +227,9 @@ private slots:
     void onTransportConnected(bool connected);
     void onDeviceFound(const QString &portName);
     void onDeviceLost(const QString &portName);
+    void onWifiScreenFrame(const QImage &image);   // pushed from the worker thread
+    void onInboundActivity();                       // any inbound WiFi byte (liveness)
+    void tryWifiReconnect();
 
 private:
     void sendCommand(uint8_t cmd, const QByteArray &payload = {});
@@ -196,18 +242,58 @@ private:
     void handleNack(const rpc::Frame &frame);
     void fwUpdateSendNextChunk();
 
-    SerialTransport m_transport;
+    /** Switch active transport, rewiring signals. */
+    void setTransport(AbstractTransport *transport);
+
+    /** Post-connect handshake (ping, device info, keepalive). */
+    void startSession();
+
+    /* Transports — serial is always available, WiFi created on demand */
+    AbstractTransport *m_transport = nullptr;
+    SerialTransport    m_serialTransport;
+    WifiTransport     *m_wifiTransport = nullptr;
+
     rpc::FrameCodec m_codec;
     DeviceDiscovery m_discovery;
     DeviceInfo      m_deviceInfo;
     ScreenBuffer    m_screenBuffer;
 
+    /* M1 firmware log line buffer (for assembling partial lines) */
+    QByteArray m_m1LogBuf;
+
+    /* Debug log-to-file (opt-in) */
+    bool    m_logToFile = false;
+    QString m_logFilePath;
+    QFile   m_logFile;
+    bool    m_deviceLogVerbose = false;
+
+    /* CRC-dialect handshake state (see crc16.*). */
+    bool    m_dialectResolved  = false;   // latched the device's dialect this session
+    bool    m_legacyCompatMode = false;   // device uses the pre-fix (legacy) CRC
+
     bool     m_screenStreaming = false;
+    bool     m_screenWanted    = false;   // user intent: re-arm the UDP stream on reconnect
+    int      m_screenFps       = 5;
     int      m_screenFrameCount = 0;
     bool     m_autoConnect = true;
     bool     m_userDisconnecting = false;
     QTimer   m_pingTimer;
     qint64   m_lastPingTime = 0;
+    int      m_missedPongs = 0;
+    qint64   m_lastInboundMs = 0;   // last inbound byte/frame time (liveness, §3)
+
+    /* Latest finished (upscaled) screen frame — pushed to QML and used by
+     * screenshot save. Decoded on the worker thread for WiFi, on the GUI
+     * thread for serial. */
+    QImage   m_lastScreenImage;
+
+    /* WiFi async connect + auto-reconnect state */
+    QString  m_wifiTarget;                 // last WiFi host:port
+    bool     m_pendingSessionStart = false;
+    bool     m_wifiWasConnected = false;   // gate auto-reconnect to real drops
+    QTimer   m_wifiReconnectTimer;
+    int      m_wifiReconnectAttempts = 0;
+    MdnsDiscovery *m_mdns = nullptr;        // not owned
 
     /* File transfer state */
     QByteArray m_fileDownloadBuf;

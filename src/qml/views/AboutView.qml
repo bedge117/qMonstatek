@@ -114,9 +114,11 @@ Item {
                 for (var i = 0; i < assets.length; i++) {
                     var name = assets[i].name
                     if (os === "windows") {
-                        if (name.indexOf("_setup") >= 0) {
-                            if (name.indexOf(".zip") >= 0) return assets[i]
-                            if (name.indexOf(".exe") >= 0) rawAsset = assets[i]
+                        var nl = name.toLowerCase()
+                        if (nl.indexOf("windows") >= 0 && nl.indexOf(".zip") >= 0) return assets[i]
+                        if (nl.indexOf("_setup") >= 0) {
+                            if (nl.indexOf(".zip") >= 0) return assets[i]
+                            if (nl.indexOf(".exe") >= 0) rawAsset = assets[i]
                         }
                     } else if (os === "osx") {
                         if (name.indexOf("macos") >= 0 && name.indexOf(".zip") >= 0) return assets[i]
@@ -297,6 +299,36 @@ Item {
             font.pixelSize: 12
             color: Material.hintTextColor
             Layout.alignment: Qt.AlignHCenter
+        }
+
+        // Support link — opens Buy Me a Coffee in the default browser. (The BMC
+        // <script> embed is web-only; a native button + openUrlExternally is the
+        // Qt equivalent.)
+        Button {
+            id: bmcButton
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 12
+            implicitWidth: 210
+            implicitHeight: 46
+            hoverEnabled: true
+            background: Rectangle {
+                radius: 8
+                color: bmcButton.down ? "#E5C700" : "#FFDD00"
+                border.color: "#000000"
+                border.width: 1
+            }
+            contentItem: Text {
+                text: "☕  Buy me a coffee"
+                color: "#000000"
+                font.pixelSize: 16
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: Qt.openUrlExternally("https://www.buymeacoffee.com/edgehome")
+
+            ToolTip.visible: hovered
+            ToolTip.text: "buymeacoffee.com/edgehome"
         }
 
         Item { Layout.fillHeight: true }

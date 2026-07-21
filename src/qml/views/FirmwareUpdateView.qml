@@ -135,7 +135,11 @@ Item {
                 Button {
                     text: "Flash from File..."
                     enabled: !view.flashing
-                    onClicked: fileDialog.open()
+                    onClicked: {
+                        var f = uiSettings.dialogFolder("firmwareOpen")
+                        if (f != "") fileDialog.currentFolder = f
+                        fileDialog.open()
+                    }
                 }
 
                 Label {
@@ -319,7 +323,11 @@ Item {
 
                         Button {
                             text: "Save to PC"
-                            onClicked: saveDialog.open()
+                            onClicked: {
+                                var f = uiSettings.dialogFolder("firmwareSave")
+                                if (f != "") saveDialog.currentFolder = f
+                                saveDialog.open()
+                            }
                         }
                     }
                 }
@@ -331,7 +339,12 @@ Item {
         id: fileDialog
         title: "Select Firmware Binary"
         nameFilters: ["Binary files (*.bin)", "All files (*)"]
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("firmwareOpen")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("firmwareOpen", currentFolder)
             var path = selectedFile.toString().replace(root.filePathFilter, "")
             view.selectedFilePath = path
             var parts = path.split(/[/\\]/)
@@ -380,7 +393,12 @@ Item {
         fileMode: FileDialog.SaveFile
         nameFilters: ["Binary files (*.bin)", "All files (*)"]
         currentFile: "file:///" + view.downloadedFilePath.split(/[/\\]/).pop()
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("firmwareSave")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("firmwareSave", currentFolder)
             var dest = selectedFile.toString().replace(root.filePathFilter, "")
             githubChecker.saveFileTo(view.downloadedFilePath, dest)
         }

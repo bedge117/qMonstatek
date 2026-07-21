@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 Item {
     id: view
@@ -27,6 +28,9 @@ Item {
         }
         function onErrorOccurred(message) {
             appendOutput("[ERROR] " + message)
+        }
+        function onM1LogReceived(line) {
+            appLog.append("[M1] " + line)
         }
     }
 
@@ -383,7 +387,7 @@ Item {
                             MenuItem { text: "Reset ESP32";      onTriggered: quickCmd("mtest 78 0") }
                             MenuItem { text: "Deinit (for flash)"; onTriggered: quickCmd("mtest 79 0") }
                             MenuSeparator {}
-                            MenuItem { text: "Send AT";          onTriggered: quickCmd("mtest 72 AT") }
+                            MenuItem { text: "Ping ESP (link)";  onTriggered: quickCmd("mtest 72 0") }
                             MenuItem { text: "Scan APs";         onTriggered: quickCmd("mtest 71 0") }
                             MenuSeparator {}
                             MenuItem {
@@ -447,6 +451,16 @@ Item {
                                     return "#FFC107"
                                 if (model.message.startsWith("[INF]"))
                                     return "#90CAF9"
+                                // M1 firmware log levels: [M1] ... [E], [W], [I], [D], [T]
+                                if (model.message.startsWith("[M1]")) {
+                                    if (model.message.indexOf("[E]") > 0)
+                                        return "#F44336"
+                                    if (model.message.indexOf("[W]") > 0)
+                                        return "#FFC107"
+                                    if (model.message.indexOf("[I]") > 0)
+                                        return "#4FC3F7"
+                                    return "#81C784"  // debug/trace = green
+                                }
                                 return "#AAAAAA"
                             }
                             wrapMode: Text.Wrap
@@ -490,7 +504,79 @@ Item {
                         color: Material.hintTextColor
                     }
                 }
+
+                // Opt-in log capture to file (off by default). Lets devs save
+                // logs without a firmware/code change, to a path of their choice.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Switch {
+                        id: logToFileSwitch
+                        text: "Save log to file"
+                        checked: m1device.logToFile
+                        onToggled: m1device.logToFile = checked
+                    }
+
+                    TextField {
+                        Layout.fillWidth: true
+                        readOnly: true
+                        text: m1device.logFilePath
+                        font.pixelSize: 11
+                        color: Material.hintTextColor
+                    }
+
+                    Button {
+                        text: "Browse…"
+                        flat: true
+                        onClicked: {
+                            var f = uiSettings.dialogFolder("logSave")
+                            if (f != "") logFileDialog.currentFolder = f
+                            logFileDialog.open()
+                        }
+                    }
+                }
+
+                // Device-side UART verbosity. OFF keeps the M1 quiet (WARN) so its
+                // UART isn't flooded with m1link/RPC traces; ON raises it to INFO
+                // for a capture. Off by default — normal users never need it.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Switch {
+                        id: deviceVerboseSwitch
+                        text: "Verbose device logging (UART)"
+                        enabled: m1device.connected
+                        checked: m1device.deviceLogVerbose
+                        onToggled: m1device.deviceLogVerbose = checked
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: m1device.deviceLogVerbose
+                              ? "Device streaming INFO logs — turn off when done"
+                              : "Device quiet (WARN only)"
+                        font.pixelSize: 11
+                        color: m1device.deviceLogVerbose ? "#F44336" : Material.hintTextColor
+                    }
+                }
             }
+        }
+    }
+
+    FileDialog {
+        id: logFileDialog
+        title: "Save M1 Log As"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "log"
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("logSave")
+            if (f != "") currentFolder = f
+        }
+        onAccepted: {
+            uiSettings.setDialogFolder("logSave", currentFolder)
+            m1device.logFilePath = selectedFile
         }
     }
 }

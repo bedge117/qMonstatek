@@ -4,27 +4,27 @@ add_library(qmonstatek_backend STATIC
     protocol/rpc_frame.cpp
 
     # Transport
+    transport/abstract_transport.cpp
     transport/serial_transport.cpp
+    transport/tcp_transport.cpp
+    transport/wifi_transport.cpp
+    transport/network_worker.cpp
     transport/device_discovery.cpp
+    transport/mdns_discovery.cpp
 
     # Device
     device/m1_device.cpp
     device/screen_buffer.cpp
-    device/screen_image_provider.cpp
+    device/screen_canvas.cpp
     device/log_model.cpp
+    ui_settings.cpp
 
     # Updater
     updater/github_checker.cpp
-    updater/firmware_updater.cpp
-    updater/esp32_updater.cpp
     updater/self_updater.cpp
     updater/tool_paths.cpp
     updater/dfu_flasher.cpp
     updater/swd_recovery.cpp
-
-    # File manager
-    filemanager/remote_filesystem.cpp
-    filemanager/file_model.cpp
 )
 
 target_include_directories(qmonstatek_backend PUBLIC

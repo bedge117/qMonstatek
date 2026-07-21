@@ -87,6 +87,8 @@ constexpr uint8_t CMD_CLI_EXEC              = 0x60;
 constexpr uint8_t CMD_CLI_RESP              = 0x61;
 constexpr uint8_t CMD_ESP_UART_SNOOP        = 0x62;
 constexpr uint8_t CMD_ESP_UART_SNOOP_RESP   = 0x63;
+constexpr uint8_t CMD_LOG_MESSAGE           = 0x64;  // M1→host: streamed debug log
+constexpr uint8_t CMD_SET_LOG_LEVEL         = 0x65;  // host→M1: payload[0]=level (0..5)
 
 /* ──────────── Button IDs (match m1_system.h) ──────────── */
 constexpr uint8_t BUTTON_OK    = 0;
@@ -213,6 +215,7 @@ inline const char* cmdName(uint8_t cmd) {
         case CMD_CLI_RESP:         return "CLI_RESP";
         case CMD_ESP_UART_SNOOP:   return "ESP_UART_SNOOP";
         case CMD_ESP_UART_SNOOP_RESP: return "ESP_UART_SNOOP_RESP";
+        case CMD_LOG_MESSAGE:      return "LOG_MESSAGE";
         case CMD_SD_UNMOUNT:       return "SD_UNMOUNT";
         case CMD_SD_MOUNT:         return "SD_MOUNT";
         default:                   return "UNKNOWN";

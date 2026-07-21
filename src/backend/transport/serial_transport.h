@@ -5,42 +5,26 @@
 #ifndef SERIAL_TRANSPORT_H
 #define SERIAL_TRANSPORT_H
 
-#include <QObject>
+#include "abstract_transport.h"
 #include <QSerialPort>
 #include <QString>
 
-class SerialTransport : public QObject {
+class SerialTransport : public AbstractTransport {
     Q_OBJECT
-    Q_PROPERTY(bool connected READ isConnected NOTIFY connectionChanged)
 
 public:
     explicit SerialTransport(QObject *parent = nullptr);
     ~SerialTransport() override;
 
-    /**
-     * Open a serial connection to the specified port.
-     * @param portName  COM port name (e.g., "COM3")
-     * @return true on success
-     */
-    bool open(const QString &portName);
+    bool open(const QString &portName) override;
+    void close() override;
+    qint64 send(const QByteArray &data) override;
+    bool isConnected() const override;
+    QString transportName() const override { return QStringLiteral("USB"); }
+    QString targetName() const override { return m_port.portName(); }
 
-    /**
-     * Close the serial connection.
-     */
-    void close();
-
-    /**
-     * Send raw bytes to the device.
-     */
-    qint64 send(const QByteArray &data);
-
-    bool isConnected() const;
-    QString portName() const;
-
-signals:
-    void dataReceived(const QByteArray &data);
-    void connectionChanged(bool connected);
-    void errorOccurred(const QString &message);
+    /** Legacy accessor for port name. */
+    QString portName() const { return m_port.portName(); }
 
 private slots:
     void onReadyRead();

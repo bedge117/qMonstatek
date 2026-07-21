@@ -27,7 +27,7 @@ public:
     Q_INVOKABLE void clear();
     Q_INVOKABLE QString fullText() const;
 
-    void append(const QString &line);
+    Q_INVOKABLE void append(const QString &line);
 
 signals:
     void countChanged();

@@ -22,7 +22,7 @@ Rectangle {
         { name: "esp32Update",    label: "ESP32 Update",     icon: "📡", section: "",         requires: "compatible" },
         { name: "dfuFlash",      label: "DFU Flash",        icon: "⚡", section: "Recovery", requires: "none" },
         { name: "swdRecovery",  label: "SWD Recovery",     icon: "🔧", section: "",         requires: "none" },
-        { name: "debugTerminal", label: "Debug Terminal",    icon: ">",  section: "System",   requires: "compatible" },
+        { name: "debugTerminal", label: "Debug Terminal",    icon: ">",  section: "System",   requires: "none" },
         { name: "settings",      label: "Settings",         icon: "⚙", section: "",         requires: "none" },
         { name: "power",        label: "Power",            icon: "⏻", section: "",         requires: "compatible" },
         { name: "about",         label: "About",            icon: "?",  section: "",         requires: "none" }

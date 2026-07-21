@@ -8,7 +8,7 @@ Dialog {
     title: "Connect to M1"
     modal: true
     anchors.centerIn: parent
-    width: 400
+    width: 440
     standardButtons: Dialog.Cancel
 
     ColumnLayout {
@@ -16,14 +16,14 @@ Dialog {
         spacing: 16
 
         Label {
-            text: "Select a serial port to connect to your M1 device."
+            text: "Connect to your M1 device via USB or WiFi."
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
 
-        // Auto-detected M1 devices
+        // ── USB Connection ──
         GroupBox {
-            title: "Detected M1 Devices"
+            title: "USB Connection"
             Layout.fillWidth: true
 
             ColumnLayout {
@@ -48,31 +48,88 @@ Dialog {
                         }
                     }
                 }
+
+                // Manual port entry
+                RowLayout {
+                    TextField {
+                        id: manualPort
+                        placeholderText: Qt.platform.os === "windows" ? "COM port (e.g., COM3)"
+                                       : Qt.platform.os === "osx" ? "Port (e.g., /dev/cu.usbmodem)"
+                                       : "Port (e.g., /dev/ttyACM0)"
+                        Layout.fillWidth: true
+                    }
+
+                    Button {
+                        text: "Connect"
+                        enabled: manualPort.text.length > 0
+                        onClicked: {
+                            m1device.connectToDevice(manualPort.text)
+                            dialog.close()
+                        }
+                    }
+                }
             }
         }
 
-        // Manual port entry
+        // ── WiFi Connection ──
         GroupBox {
-            title: "Manual Connection"
+            title: "WiFi Connection"
             Layout.fillWidth: true
 
-            RowLayout {
+            ColumnLayout {
                 anchors.fill: parent
 
-                TextField {
-                    id: manualPort
-                    placeholderText: Qt.platform.os === "windows" ? "COM port (e.g., COM3)"
-                                   : Qt.platform.os === "osx" ? "Port (e.g., /dev/cu.usbmodem)"
-                                   : "Port (e.g., /dev/ttyACM0)"
-                    Layout.fillWidth: true
+                // mDNS discovered devices
+                Label {
+                    visible: !mdnsDiscovery.scanning && mdnsDiscovery.services.length === 0
+                    text: "No M1 devices found on network.\nMake sure your M1 is connected to WiFi."
+                    color: Material.hintTextColor
+                    font.italic: true
+                }
+
+                BusyIndicator {
+                    visible: mdnsDiscovery.scanning
+                    running: mdnsDiscovery.scanning
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                Repeater {
+                    model: mdnsDiscovery.services
+                    delegate: Button {
+                        text: modelData.name + " (" + modelData.ip + ":" + modelData.port + ")"
+                        Layout.fillWidth: true
+                        highlighted: true
+                        Material.accent: Material.Teal
+                        onClicked: {
+                            m1device.connectToDeviceWifi(modelData.target)
+                            dialog.close()
+                        }
+                    }
                 }
 
                 Button {
-                    text: "Connect"
-                    enabled: manualPort.text.length > 0
-                    onClicked: {
-                        m1device.connectToDevice(manualPort.text)
-                        dialog.close()
+                    text: mdnsDiscovery.scanning ? "Scanning..." : "Scan for WiFi Devices"
+                    Layout.fillWidth: true
+                    enabled: !mdnsDiscovery.scanning
+                    onClicked: mdnsDiscovery.startScan()
+                }
+
+                // Manual IP entry
+                RowLayout {
+                    TextField {
+                        id: wifiAddress
+                        placeholderText: "IP:Port (e.g., 192.168.1.50:3333)"
+                        Layout.fillWidth: true
+                    }
+
+                    Button {
+                        text: "Connect"
+                        enabled: wifiAddress.text.length > 0
+                        Material.accent: Material.Teal
+                        onClicked: {
+                            m1device.connectToDeviceWifi(wifiAddress.text)
+                            dialog.close()
+                        }
                     }
                 }
             }

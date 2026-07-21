@@ -30,6 +30,27 @@ Item {
             checking: false
         }
         ListElement {
+            url: "hapaxx11/M1"
+            label: "hapaxx11/M1 (Hapax)"
+            isDefault: false
+            status: ""
+            checking: false
+        }
+        ListElement {
+            url: "dagnazty/M1_T-1000"
+            label: "dagnazty/M1_T-1000"
+            isDefault: false
+            status: ""
+            checking: false
+        }
+        ListElement {
+            url: "RogueMaster/M1"
+            label: "RogueMaster/M1"
+            isDefault: false
+            status: ""
+            checking: false
+        }
+        ListElement {
             url: "Monstatek/M1"
             label: "Monstatek/M1 (Official)"
             isDefault: false

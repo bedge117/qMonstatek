@@ -47,8 +47,9 @@ QByteArray FrameCodec::buildFrame(uint8_t cmd, uint8_t seq,
         frame.append(reinterpret_cast<const char*>(payload), len);
     }
 
-    // CRC-16 over CMD through PAYLOAD (bytes 1..N, skipping SYNC)
-    uint16_t crc = crc16_ccitt(
+    // CRC-16 over CMD through PAYLOAD (bytes 1..N, skipping SYNC). Uses the
+    // active TX dialect so we can address old (legacy-CRC) firmware too.
+    uint16_t crc = crc16_ccitt_tx(
         reinterpret_cast<const uint8_t*>(frame.constData() + 1),
         static_cast<size_t>(frame.size() - 1)
     );
@@ -151,20 +152,18 @@ void FrameCodec::finalizeFrame()
     crcData.append(m_headerBuf);       // CMD + SEQ + LEN(2)
     crcData.append(m_payloadBuf);      // PAYLOAD
 
-    uint16_t computed = crc16_ccitt(
-        reinterpret_cast<const uint8_t*>(crcData.constData()),
-        static_cast<size_t>(crcData.size())
-    );
-
     uint16_t received = static_cast<uint16_t>(
         (static_cast<uint8_t>(m_crcBuf.at(0))) |
         (static_cast<uint8_t>(m_crcBuf.at(1)) << 8)
     );
 
-    if (computed != received) {
+    // Accept a frame whose CRC matches EITHER dialect (correct or legacy). The
+    // first match after connect latches the peer's dialect for TX.
+    if (!crc16ValidateRx(
+            reinterpret_cast<const uint8_t*>(crcData.constData()),
+            static_cast<size_t>(crcData.size()), received)) {
         qWarning() << "RPC: CRC mismatch for cmd" << Qt::hex << m_cmd
-                   << "seq" << m_seq
-                   << "computed:" << computed << "received:" << received;
+                   << "seq" << m_seq << "received:" << received;
         emit frameCrcError(m_cmd, m_seq);
         return;
     }

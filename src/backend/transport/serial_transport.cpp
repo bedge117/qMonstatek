@@ -12,7 +12,7 @@
 #endif
 
 SerialTransport::SerialTransport(QObject *parent)
-    : QObject(parent)
+    : AbstractTransport(parent)
 {
     connect(&m_port, &QSerialPort::readyRead,
             this, &SerialTransport::onReadyRead);
@@ -88,11 +88,6 @@ qint64 SerialTransport::send(const QByteArray &data)
 bool SerialTransport::isConnected() const
 {
     return m_port.isOpen();
-}
-
-QString SerialTransport::portName() const
-{
-    return m_port.portName();
 }
 
 void SerialTransport::onReadyRead()

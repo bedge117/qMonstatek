@@ -19,8 +19,64 @@ ToolBar {
         }
 
         Label {
-            text: m1device.connected ? m1device.firmwareVersion : "No device"
+            text: m1device.connected
+                  ? m1device.firmwareVersion + " [" + m1device.connectionType + "]"
+                  : "No device"
             font.pixelSize: 13
+        }
+
+        // Legacy-firmware compatibility indicator — the connected device predates
+        // the CRC-table fix; qMonstatek is talking to it in a compat dialect so
+        // the user can push the fixing update without DFU.
+        Rectangle {
+            visible: m1device.connected && m1device.legacyCompatMode
+            Layout.leftMargin: 12
+            implicitWidth: legacyRow.implicitWidth + 14
+            implicitHeight: 22
+            radius: 11
+            color: "#33FF9800"
+            border.color: "#FF9800"
+            border.width: 1
+
+            RowLayout {
+                id: legacyRow
+                anchors.centerIn: parent
+                spacing: 5
+                Label {
+                    text: "⚠ Legacy FW — compatibility mode"
+                    font.pixelSize: 12
+                    color: "#FF9800"
+                }
+            }
+            ToolTip.visible: legacyHover.hovered
+            ToolTip.text: "This firmware predates the CRC fix. Updating the firmware "
+                        + "from this app will restore normal operation."
+            HoverHandler { id: legacyHover }
+        }
+
+        // Log-to-file indicator — shows when Debug Terminal logging is enabled,
+        // so you can see it's capturing without switching to the debug screen.
+        RowLayout {
+            visible: m1device.logToFile
+            spacing: 5
+            Layout.leftMargin: 16
+
+            Rectangle {
+                width: 9; height: 9
+                radius: 4.5
+                color: "#F44336"
+                SequentialAnimation on opacity {
+                    running: m1device.logToFile
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 1.0; to: 0.25; duration: 650; easing.type: Easing.InOutQuad }
+                    NumberAnimation { from: 0.25; to: 1.0; duration: 650; easing.type: Easing.InOutQuad }
+                }
+            }
+            Label {
+                text: "Logging enabled"
+                font.pixelSize: 12
+                color: "#F44336"
+            }
         }
 
         Item { Layout.fillWidth: true }

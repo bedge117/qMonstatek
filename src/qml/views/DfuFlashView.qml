@@ -386,7 +386,11 @@ Item {
                         Button {
                             text: "Select File..."
                             enabled: !dfuFlasher.flashing
-                            onClicked: fileDialog.open()
+                            onClicked: {
+                                var f = uiSettings.dialogFolder("dfuOpen")
+                                if (f != "") fileDialog.currentFolder = f
+                                fileDialog.open()
+                            }
                         }
 
                         Label {
@@ -602,7 +606,12 @@ Item {
         id: fileDialog
         title: "Select Firmware Binary"
         nameFilters: ["Binary files (*.bin)", "All files (*)"]
+        Component.onCompleted: {
+            var f = uiSettings.dialogFolder("dfuOpen")
+            if (f != "") currentFolder = f
+        }
         onAccepted: {
+            uiSettings.setDialogFolder("dfuOpen", currentFolder)
             var path = selectedFile.toString().replace(root.filePathFilter, "")
             view.selectedFilePath = path
             var parts = path.split(/[/\\]/)
