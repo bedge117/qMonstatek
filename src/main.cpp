@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("qMonstatek");
     app.setOrganizationName("Monstatek");
-    app.setApplicationVersion("2.5.3");
+    app.setApplicationVersion("2.5.4");
 
     // Open log file in temp directory (avoids write permission issues in Program Files)
     QString logPath = QDir::tempPath() + "/qmonstatek.log";
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
     GithubChecker appUpdateChecker;
     appUpdateChecker.setRepoUrl("bedge117/qMonstatek");
     GithubChecker esp32Checker;
-    esp32Checker.setRepoUrl("bedge117/esp32-at-monstatek-m1");
+    esp32Checker.setRepoUrl("bedge117/m1-esp32-brain");
     SelfUpdater selfUpdater;
     DfuFlasher dfuFlasher;
     SwdRecovery swdRecovery;

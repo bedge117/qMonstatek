@@ -380,16 +380,19 @@ Item {
                     Label { text: "Download from GitHub"; font.bold: true }
 
                     Label {
-                        text: "Download ESP32-C6 firmware from bedge117/esp32-at-monstatek-m1"
+                        text: "SPI brain firmware (current): bedge117/m1-esp32-brain\n" +
+                              "Roll back to legacy ESP-AT firmware: bedge117/esp32-at-monstatek-m1"
                         font.pixelSize: 11
                         color: Material.hintTextColor
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
 
                     RowLayout {
                         spacing: 12
 
                         Button {
-                            text: esp32Checker.checking ? "Checking..." : "Download Latest"
+                            text: esp32Checker.checking ? "Checking..." : "Download Latest (SPI Brain)"
                             highlighted: true
                             enabled: !esp32Checker.checking && !view.downloading && !view.updating
                             onClicked: {
@@ -409,7 +412,7 @@ Item {
                         }
 
                         Button {
-                            text: view.restoring ? "Restoring..." : "Restore Stock (v1.0.0)"
+                            text: view.restoring ? "Restoring..." : "Roll back to AT firmware"
                             enabled: !view.restoring && !view.downloading && !view.updating
                             onClicked: view.startRestore()
                         }
