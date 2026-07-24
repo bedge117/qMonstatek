@@ -39,6 +39,7 @@ public:
 
     Q_INVOKABLE void recoveryFlash(const QString &binFilePath);
     Q_INVOKABLE void swapBank();
+    Q_INVOKABLE void verifyBank1(const QString &binFilePath);
     Q_INVOKABLE void verifyBank2(const QString &binFilePath);
     Q_INVOKABLE void cloneBank1ToBank2();
     Q_INVOKABLE void readStatus();

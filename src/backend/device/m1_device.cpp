@@ -535,6 +535,23 @@ void M1Device::deleteFile(const QString &remotePath)
     sendCommand(rpc::CMD_FILE_DELETE, payload);
 }
 
+void M1Device::deleteTree(const QString &remotePath)
+{
+    m_pendingFileCmd = rpc::CMD_FILE_DELETE_TREE;
+    QByteArray payload = remotePath.toUtf8();
+    payload.append('\0');
+    sendCommand(rpc::CMD_FILE_DELETE_TREE, payload);
+}
+
+void M1Device::renameFile(const QString &oldPath, const QString &newPath)
+{
+    m_pendingFileCmd = rpc::CMD_FILE_RENAME;
+    QByteArray payload = oldPath.toUtf8();
+    payload.append('\0');                 // separator between old and new path
+    payload.append(newPath.toUtf8());
+    sendCommand(rpc::CMD_FILE_RENAME, payload);
+}
+
 void M1Device::makeDirectory(const QString &remotePath)
 {
     m_pendingFileCmd = rpc::CMD_FILE_MKDIR;
@@ -1407,8 +1424,13 @@ void M1Device::handleAck(const rpc::Frame & /*frame*/)
 
     switch (pending) {
     case rpc::CMD_FILE_DELETE:
+    case rpc::CMD_FILE_DELETE_TREE:
         qDebug() << "File delete confirmed";
         emit fileDeleteComplete();
+        break;
+    case rpc::CMD_FILE_RENAME:
+        qDebug() << "File rename/move confirmed";
+        emit fileRenameComplete();
         break;
     case rpc::CMD_FILE_MKDIR:
         qDebug() << "Mkdir confirmed";
@@ -1454,6 +1476,7 @@ void M1Device::handleNack(const rpc::Frame &frame)
     case rpc::ERR_BUSY:            errMsg = "Device busy"; break;
     case rpc::ERR_SD_NOT_READY:    errMsg = "SD card not ready"; break;
     case rpc::ERR_FILE_NOT_FOUND:  errMsg = "File not found"; break;
+    case rpc::ERR_DIR_NOT_EMPTY:   errMsg = "Folder not empty"; break;
     case rpc::ERR_FLASH_ERROR:     errMsg = "Flash error"; break;
     case rpc::ERR_CRC_MISMATCH:    errMsg = "CRC mismatch"; break;
     case rpc::ERR_SIZE_TOO_LARGE:  errMsg = "Size too large"; break;

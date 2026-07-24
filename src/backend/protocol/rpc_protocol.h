@@ -64,6 +64,8 @@ constexpr uint8_t CMD_FILE_INFO        = 0x39;
 constexpr uint8_t CMD_FILE_INFO_RESP   = 0x3A;
 constexpr uint8_t CMD_SD_UNMOUNT       = 0x3B;
 constexpr uint8_t CMD_SD_MOUNT         = 0x3C;
+constexpr uint8_t CMD_FILE_RENAME      = 0x3D;  // payload: old '\0' new — rename or move
+constexpr uint8_t CMD_FILE_DELETE_TREE = 0x3E;  // payload: path — recursive delete
 
 /* ──────────── Firmware Commands (0x40–0x4F) ──────────── */
 constexpr uint8_t CMD_FW_INFO          = 0x40;
@@ -110,6 +112,7 @@ constexpr uint8_t ERR_CRC_MISMATCH   = 0x08;
 constexpr uint8_t ERR_SIZE_TOO_LARGE = 0x09;
 constexpr uint8_t ERR_BANK_EMPTY     = 0x0A;
 constexpr uint8_t ERR_ESP_FLASH      = 0x0B;
+constexpr uint8_t ERR_DIR_NOT_EMPTY  = 0x0C;
 
 /* ESP32 flash sub-error codes (2nd NACK payload byte when ERR_ESP_FLASH) */
 constexpr uint8_t ESP_SUB_CONNECT    = 0x01;  // connect_to_target failed

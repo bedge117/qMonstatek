@@ -66,25 +66,62 @@ Item {
             }
         }
 
-        // Screen display (centered)
+        // ── M1 device (live screen + on-device controls) ──
         Item {
+            id: deviceArea
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            MonoDisplay {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top: parent.top
-                anchors.topMargin: 8
-                width: 512
-                height: 256
+            M1DeviceSkin {
+                anchors.centerIn: parent
+                caseTheme: uiSettings.caseColor
+                // Fixed 760x320 design — scale to fit the available area
+                // (allow a little upscale on big windows).
+                scale: Math.max(0.3, Math.min((deviceArea.width - 24) / 760,
+                                              (deviceArea.height - 24) / 320, 1.4))
+                transformOrigin: Item.Center
             }
         }
 
-        // Virtual button pad
-        VirtualButtonPad {
+        // ── Case colour picker ──
+        RowLayout {
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredHeight: 180
-            Layout.preferredWidth: 280
+            spacing: 10
+
+            Label { text: "Case color:"; font.pixelSize: 12; color: Material.hintTextColor }
+
+            Repeater {
+                model: [
+                    { key: "white",  col: "#FCFCFD", label: "White" },
+                    { key: "black",  col: "#202124", label: "Black" },
+                    { key: "clear",  col: "#80CBD2DC", label: "Clear" },
+                    { key: "orange", col: "#F57C00", label: "Orange" },
+                    { key: "green",  col: "#43A047", label: "Green" }
+                ]
+                delegate: Rectangle {
+                    width: 26; height: 26; radius: 13
+                    color: modelData.col
+                    border.color: uiSettings.caseColor === modelData.key ? Material.accent : "#88808080"
+                    border.width: uiSettings.caseColor === modelData.key ? 3 : 1
+                    ToolTip.visible: swHover.hovered
+                    ToolTip.delay: 300
+                    ToolTip.text: modelData.label
+                    HoverHandler { id: swHover }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: uiSettings.caseColor = modelData.key
+                    }
+                }
+            }
+        }
+
+        // Keyboard hint
+        Label {
+            text: "Click the buttons, or use the keyboard:  Arrow keys = D-pad  ·  Enter = OK  ·  Esc = Back"
+            font.pixelSize: 11
+            color: Material.hintTextColor
+            Layout.alignment: Qt.AlignHCenter
         }
 
         // Screenshot notification

@@ -137,6 +137,8 @@ public:
     Q_INVOKABLE void uploadFiles(const QVariantList &fileUrls, const QString &remotePath);
     Q_INVOKABLE void uploadFolder(const QString &localFolderUrl, const QString &remotePath);
     Q_INVOKABLE void deleteFile(const QString &remotePath);
+    Q_INVOKABLE void deleteTree(const QString &remotePath);    // recursive (folder + contents)
+    Q_INVOKABLE void renameFile(const QString &oldPath, const QString &newPath); // rename or move
     Q_INVOKABLE void makeDirectory(const QString &remotePath);
 
     /* SD card mount/unmount */
@@ -190,6 +192,7 @@ signals:
     void fileUploadProgress(int percent);
     void fileUploadComplete();
     void fileDeleteComplete();
+    void fileRenameComplete();
     void fileMkdirComplete();
     void fileOperationError(const QString &message);
     void multiUploadProgress(int fileIndex, int totalFiles, const QString &fileName);

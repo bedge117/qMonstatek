@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("qMonstatek");
     app.setOrganizationName("Monstatek");
-    app.setApplicationVersion("2.5.4");
+    app.setApplicationVersion("2.6.0");
 
     // Open log file in temp directory (avoids write permission issues in Program Files)
     QString logPath = QDir::tempPath() + "/qmonstatek.log";

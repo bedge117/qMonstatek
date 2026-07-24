@@ -4,7 +4,13 @@ import QtQuick.Controls.Material
 import QtQuick.Layouts
 
 ToolBar {
+    id: bar
     Material.elevation: 2
+
+    // Driven by main.qml's periodic qMonstatek update check
+    property bool updateAvailable: false
+    property string updateVersion: ""
+    signal openUpdate()
 
     RowLayout {
         anchors.fill: parent
@@ -77,6 +83,50 @@ ToolBar {
                 font.pixelSize: 12
                 color: "#F44336"
             }
+        }
+
+        // qMonstatek update-available indicator (click → About page)
+        Rectangle {
+            visible: bar.updateAvailable
+            Layout.leftMargin: 16
+            implicitWidth: updateRow.implicitWidth + 16
+            implicitHeight: 22
+            radius: 11
+            color: "#334CAF50"
+            border.color: "#4CAF50"
+            border.width: 1
+
+            RowLayout {
+                id: updateRow
+                anchors.centerIn: parent
+                spacing: 5
+
+                Rectangle {
+                    width: 9; height: 9; radius: 4.5
+                    color: "#4CAF50"
+                    SequentialAnimation on opacity {
+                        running: bar.updateAvailable
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1.0; to: 0.3; duration: 700; easing.type: Easing.InOutQuad }
+                        NumberAnimation { from: 0.3; to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+                    }
+                }
+                Label {
+                    text: "Update available!" + (bar.updateVersion.length > 0 ? "  " + bar.updateVersion : "")
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: "#4CAF50"
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: bar.openUpdate()
+            }
+            ToolTip.visible: updHover.hovered
+            ToolTip.text: "A newer qMonstatek is available — click to open the About page and install"
+            HoverHandler { id: updHover }
         }
 
         Item { Layout.fillWidth: true }

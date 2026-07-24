@@ -67,27 +67,122 @@ Item {
         sendCommand()
     }
 
-    // Send multiple commands with a short delay between each
-    property var _cmdQueue: []
-    Timer {
-        id: cmdQueueTimer
-        interval: 150
-        repeat: false
-        onTriggered: {
-            if (view._cmdQueue.length > 0) {
-                var next = view._cmdQueue.shift()
-                quickCmd(next)
-                if (view._cmdQueue.length > 0)
-                    cmdQueueTimer.start()
-            }
-        }
+    // Put a catalog command into the input field, ready to edit + Enter
+    function pickCommand(cmd) {
+        cmdInput.text = cmd
+        cmdInput.forceActiveFocus()
+        cmdInput.cursorPosition = cmdInput.text.length
     }
-    function quickCmdChain(cmds) {
-        quickCmd(cmds[0])
-        if (cmds.length > 1) {
-            view._cmdQueue = cmds.slice(1)
-            cmdQueueTimer.start()
+
+    // Tab-completion: cycle through catalog commands that start with whatever
+    // the user last typed (reset by onTextEdited).
+    property string _tabBase: ""
+    property int _tabIdx: -1
+    function tabComplete() {
+        var base = view._tabBase.toLowerCase()
+        var matches = []
+        for (var i = 0; i < view.allCommands.length; i++) {
+            if (view.allCommands[i].toLowerCase().indexOf(base) === 0)
+                matches.push(view.allCommands[i])
         }
+        if (matches.length === 0) return
+        view._tabIdx = (view._tabIdx + 1) % matches.length
+        cmdInput.text = matches[view._tabIdx]
+        cmdInput.cursorPosition = cmdInput.text.length
+    }
+
+    // ── Command catalog: drives the ▾ picker and tab-completion.
+    // { h: "Header" } starts a group; { t: label, c: command } is an entry. ──
+    readonly property var cmdCatalog: [
+        { h: "Help" },
+        { t: "Show command help",            c: "mtest" },
+        { h: "LED" },
+        { t: "Off / stop",                   c: "mtest 21 0" },
+        { t: "Red (half)",                   c: "mtest 22 128" },
+        { t: "Green (half)",                 c: "mtest 23 128" },
+        { t: "Blue (half)",                  c: "mtest 24 128" },
+        { t: "Red (full)",                   c: "mtest 22 255" },
+        { t: "Green (full)",                 c: "mtest 23 255" },
+        { t: "Blue (full)",                  c: "mtest 24 255" },
+        { t: "RGB blink slow",               c: "mtest 20 7 128 2000" },
+        { t: "RGB blink fast",               c: "mtest 20 7 128 500" },
+        { t: "Red blink",                    c: "mtest 20 1 128 1000" },
+        { t: "Green blink",                  c: "mtest 20 2 128 1000" },
+        { t: "Blue blink",                   c: "mtest 20 4 128 1000" },
+        { h: "Display / LCD" },
+        { t: "Backlight off",                c: "mtest 30 0" },
+        { t: "Backlight 25%",                c: "mtest 30 64" },
+        { t: "Backlight 50%",                c: "mtest 30 128" },
+        { t: "Backlight 100%",               c: "mtest 30 255" },
+        { t: "Clear display",                c: "mtest 32 0" },
+        { t: "Re-init display",              c: "mtest 35 0" },
+        { t: "Power save on",                c: "mtest 31 1" },
+        { t: "Power save off",               c: "mtest 31 0" },
+        { t: "Set contrast (edit value)",    c: "mtest 33 128" },
+        { t: "Set reg ratio (edit 0-7)",     c: "mtest 34 4" },
+        { h: "Buzzer" },
+        { t: "Beep",                         c: "mtest 1 1000 200" },
+        { t: "Long tone",                    c: "mtest 1 800 1000" },
+        { h: "GPIO" },
+        { t: "Ext 3V3 on",                   c: "mtest 80 1" },
+        { t: "Ext 3V3 off",                  c: "mtest 80 0" },
+        { t: "Ext 5V on",                    c: "mtest 81 1" },
+        { t: "Ext 5V off",                   c: "mtest 81 0" },
+        { h: "Sub-GHz" },
+        { t: "Init 315 MHz",                 c: "mtest 60 315" },
+        { t: "Init 433 MHz",                 c: "mtest 60 433" },
+        { t: "Init 915 MHz",                 c: "mtest 60 915" },
+        { t: "RX mode ch0",                  c: "mtest 63 0" },
+        { t: "CW TX ch0",                    c: "mtest 61 0" },
+        { t: "CW TX off",                    c: "mtest 61 256" },
+        { t: "TX power 20",                  c: "mtest 62 20" },
+        { t: "TX power 127 (max)",           c: "mtest 62 127" },
+        { t: "Frontend 315",                 c: "mtest 64 0" },
+        { t: "Frontend 433",                 c: "mtest 64 1" },
+        { t: "Frontend 915",                 c: "mtest 64 2" },
+        { t: "Frontend none",                c: "mtest 64 3" },
+        { t: "Get RSSI",                     c: "mtest 68 0" },
+        { t: "Get state",                    c: "mtest 69 0" },
+        { h: "Infrared" },
+        { t: "NEC addr0 cmd0",               c: "mtest 40 2 0 0 0" },
+        { t: "NEC addr0 cmd1",               c: "mtest 40 2 0 1 0" },
+        { t: "RC5 addr0 cmd0",               c: "mtest 40 10 0 0 0" },
+        { t: "Samsung addr7 cmd2",           c: "mtest 40 6 7 2 0" },
+        { h: "SD Card" },
+        { t: "List /",                       c: "mtest 19 /" },
+        { t: "List /subghz",                 c: "mtest 19 /subghz" },
+        { t: "List /infrared",               c: "mtest 19 /infrared" },
+        { t: "List /nfc",                    c: "mtest 19 /nfc" },
+        { t: "List /rfid",                   c: "mtest 19 /rfid" },
+        { t: "List /badusb",                 c: "mtest 19 /badusb" },
+        { t: "Format SD",                    c: "mtest 18 0" },
+        { h: "Power" },
+        { t: "Battery info",                 c: "mtest 59 0" },
+        { t: "Charger dump (BQ25896)",       c: "mtest 52 bc" },
+        { t: "USB-PD dump (FUSB302)",        c: "mtest 52 pd" },
+        { t: "Reboot menu (on-device)",      c: "mtest 51 0" },
+        { t: "Power off (CLI)",              c: "mtest 50 0" },
+        { h: "ESP32" },
+        { t: "Init ESP32",                   c: "mtest 70 0" },
+        { t: "Reset ESP32",                  c: "mtest 78 0" },
+        { t: "Deinit (for flash)",           c: "mtest 79 0" },
+        { t: "Ping link",                    c: "mtest 72 0" },
+        { t: "Scan APs",                     c: "mtest 71 0" },
+        { h: "WiFi (init ESP32 first)" },
+        { t: "Monitor start (channel hop)",  c: "mtest 73 0" },
+        { t: "Monitor stats + sample",       c: "mtest 74 0" },
+        { t: "Monitor stop",                 c: "mtest 75 0" },
+        { t: "Captive start (SSID M1-Test)", c: "mtest 76 M1-Test" },
+        { t: "Captive show creds",           c: "mtest 77 0" },
+        { t: "Captive diag",                 c: "mtest 77 2" },
+        { t: "Captive stop",                 c: "mtest 77 1" }
+    ]
+
+    readonly property var allCommands: {
+        var a = []
+        for (var i = 0; i < cmdCatalog.length; i++)
+            if (cmdCatalog[i].c !== undefined) a.push(cmdCatalog[i].c)
+        return a
     }
 
     function sendCommand() {
@@ -157,12 +252,12 @@ Item {
                             color: "#00FF00"
                             wrapMode: TextEdit.Wrap
                             background: null
-                            text: "M1 CLI Terminal\nType 'mtest' for help, or use the quick buttons below.\n\n"
+                            text: "M1 CLI Terminal\nType a command and press Enter (Tab to complete), or pick one from the ▾ list.\n\n"
                         }
                     }
                 }
 
-                // Command input
+                // ── Command input (free text + catalog dropdown + Tab complete) ──
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
@@ -179,13 +274,42 @@ Item {
                         Layout.fillWidth: true
                         font.family: "Consolas"
                         font.pixelSize: 13
-                        placeholderText: "Enter command..."
+                        placeholderText: "Type a command (Tab to complete), or pick from ▾"
                         enabled: m1device.connected
-
                         onAccepted: sendCommand()
+                        onTextEdited: { view._tabBase = text; view._tabIdx = -1 }
+                        Keys.priority: Keys.BeforeItem
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Tab) {
+                                event.accepted = true
+                                view.tabComplete()
+                            }
+                        }
+                    }
 
-                        Keys.onUpPressed: {
-                            // TODO: command history
+                    // Categorized command picker — fills the field so params stay editable
+                    Button {
+                        text: "▾"
+                        font.pixelSize: 15
+                        Layout.preferredWidth: 40
+                        enabled: m1device.connected
+                        onClicked: cmdMenu.popup()
+
+                        Menu {
+                            id: cmdMenu
+                            width: 340
+                            Repeater {
+                                model: view.cmdCatalog
+                                MenuItem {
+                                    text: modelData.h !== undefined
+                                          ? "——  " + modelData.h + "  ——"
+                                          : "     " + modelData.t
+                                    enabled: modelData.c !== undefined
+                                    font.bold: modelData.h !== undefined
+                                    font.pixelSize: 12
+                                    onTriggered: if (modelData.c !== undefined) view.pickCommand(modelData.c)
+                                }
+                            }
                         }
                     }
 
@@ -214,10 +338,10 @@ Item {
                     }
                 }
 
-                // Quick command dropdown menus (single row)
+                // ── Quick actions (one-click; also available in the ▾ list) ──
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: 6
 
                     Label {
                         text: "Quick:"
@@ -225,198 +349,62 @@ Item {
                         color: Material.hintTextColor
                     }
 
-                    // ── Help button ──
                     Button {
-                        text: "Help"
+                        id: snoopBtn
+                        text: "Boot Snoop (~3s)"
                         flat: true; font.pixelSize: 11; padding: 4
                         enabled: m1device.connected
-                        onClicked: quickCmd("mtest")
-                    }
-
-                    // ── LED menu ──
-                    Button {
-                        text: "LED \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: ledMenu.open()
-                        Menu {
-                            id: ledMenu
-                            title: "LED Control"
-                            MenuItem { text: "All Off (stop animation)"; onTriggered: quickCmdChain(["mtest 20 0 0 0", "mtest 21 0"]) }
-                            MenuSeparator {}
-                            MenuItem { text: "Red Solid";         onTriggered: quickCmdChain(["mtest 20 0 0 0", "mtest 22 128"]) }
-                            MenuItem { text: "Green Solid";       onTriggered: quickCmdChain(["mtest 20 0 0 0", "mtest 23 128"]) }
-                            MenuItem { text: "Blue Solid";        onTriggered: quickCmdChain(["mtest 20 0 0 0", "mtest 24 128"]) }
-                            MenuItem { text: "Red Full";          onTriggered: quickCmdChain(["mtest 20 0 0 0", "mtest 22 255"]) }
-                            MenuItem { text: "Green Full";        onTriggered: quickCmdChain(["mtest 20 0 0 0", "mtest 23 255"]) }
-                            MenuItem { text: "Blue Full";         onTriggered: quickCmdChain(["mtest 20 0 0 0", "mtest 24 255"]) }
-                            MenuSeparator {}
-                            MenuItem { text: "RGB Blink (slow)";  onTriggered: quickCmd("mtest 20 7 128 2000") }
-                            MenuItem { text: "RGB Blink (fast)";  onTriggered: quickCmd("mtest 20 7 128 500") }
-                            MenuItem { text: "Red Blink";         onTriggered: quickCmd("mtest 20 1 128 1000") }
-                            MenuItem { text: "Green Blink";       onTriggered: quickCmd("mtest 20 2 128 1000") }
-                            MenuItem { text: "Blue Blink";        onTriggered: quickCmd("mtest 20 4 128 1000") }
-                        }
-                    }
-
-                    // ── Display menu ──
-                    Button {
-                        text: "Display \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: displayMenu.open()
-                        Menu {
-                            id: displayMenu
-                            MenuItem { text: "Backlight Off";     onTriggered: quickCmd("mtest 30 0") }
-                            MenuItem { text: "Backlight 25%";     onTriggered: quickCmd("mtest 30 64") }
-                            MenuItem { text: "Backlight 50%";     onTriggered: quickCmd("mtest 30 128") }
-                            MenuItem { text: "Backlight 100%";    onTriggered: quickCmd("mtest 30 255") }
-                            MenuSeparator {}
-                            MenuItem { text: "Clear Display";     onTriggered: quickCmd("mtest 32 0") }
-                            MenuItem { text: "Re-init Display";   onTriggered: quickCmd("mtest 35 0") }
-                            MenuSeparator {}
-                            MenuItem { text: "Buzzer Beep";       onTriggered: quickCmd("mtest 1 1000 200") }
-                            MenuItem { text: "Buzzer Long";       onTriggered: quickCmd("mtest 1 800 1000") }
-                        }
-                    }
-
-                    // ── GPIO menu ──
-                    Button {
-                        text: "GPIO \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: gpioMenu.open()
-                        Menu {
-                            id: gpioMenu
-                            MenuItem { text: "Ext 3V3 On";   onTriggered: quickCmd("mtest 80 1") }
-                            MenuItem { text: "Ext 3V3 Off";  onTriggered: quickCmd("mtest 80 0") }
-                            MenuSeparator {}
-                            MenuItem { text: "Ext 5V On";    onTriggered: quickCmd("mtest 81 1") }
-                            MenuItem { text: "Ext 5V Off";   onTriggered: quickCmd("mtest 81 0") }
-                        }
-                    }
-
-                    // ── Sub-GHz menu ──
-                    Button {
-                        text: "Sub-GHz \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: subghzMenu.open()
-                        Menu {
-                            id: subghzMenu
-                            MenuItem { text: "Init 315 MHz";     onTriggered: quickCmd("mtest 60 315") }
-                            MenuItem { text: "Init 433 MHz";     onTriggered: quickCmd("mtest 60 433") }
-                            MenuItem { text: "Init 915 MHz";     onTriggered: quickCmd("mtest 60 915") }
-                            MenuSeparator {}
-                            MenuItem { text: "RX Mode Ch0";      onTriggered: quickCmd("mtest 63 0") }
-                            MenuItem { text: "CW TX Ch0";        onTriggered: quickCmd("mtest 61 0") }
-                            MenuItem { text: "CW TX Off";        onTriggered: quickCmd("mtest 61 256") }
-                            MenuSeparator {}
-                            MenuItem { text: "TX Power 20";      onTriggered: quickCmd("mtest 62 20") }
-                            MenuItem { text: "TX Power 127 (max)"; onTriggered: quickCmd("mtest 62 127") }
-                            MenuSeparator {}
-                            MenuItem { text: "Frontend: 315";    onTriggered: quickCmd("mtest 64 0") }
-                            MenuItem { text: "Frontend: 433";    onTriggered: quickCmd("mtest 64 1") }
-                            MenuItem { text: "Frontend: 915";    onTriggered: quickCmd("mtest 64 2") }
-                            MenuItem { text: "Frontend: None";   onTriggered: quickCmd("mtest 64 3") }
-                            MenuSeparator {}
-                            MenuItem { text: "Get RSSI";         onTriggered: quickCmd("mtest 68 0") }
-                            MenuItem { text: "Get State";        onTriggered: quickCmd("mtest 69 0") }
-                        }
-                    }
-
-                    // ── IR menu ──
-                    Button {
-                        text: "IR \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: irMenu.open()
-                        Menu {
-                            id: irMenu
-                            MenuItem { text: "NEC: Addr 0 Cmd 0";   onTriggered: quickCmd("mtest 40 2 0 0 0") }
-                            MenuItem { text: "NEC: Addr 0 Cmd 1";   onTriggered: quickCmd("mtest 40 2 0 1 0") }
-                            MenuItem { text: "RC5: Addr 0 Cmd 0";   onTriggered: quickCmd("mtest 40 10 0 0 0") }
-                            MenuItem { text: "Samsung: Addr 7 Cmd 2"; onTriggered: quickCmd("mtest 40 6 7 2 0") }
-                        }
-                    }
-
-                    // ── SD Card menu ──
-                    Button {
-                        text: "SD \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: sdMenu.open()
-                        Menu {
-                            id: sdMenu
-                            MenuItem { text: "List /";           onTriggered: quickCmd("mtest 19 /") }
-                            MenuItem { text: "List /subghz";     onTriggered: quickCmd("mtest 19 /subghz") }
-                            MenuItem { text: "List /infrared";   onTriggered: quickCmd("mtest 19 /infrared") }
-                            MenuItem { text: "List /nfc";        onTriggered: quickCmd("mtest 19 /nfc") }
-                            MenuItem { text: "List /rfid";       onTriggered: quickCmd("mtest 19 /rfid") }
-                            MenuItem { text: "List /badusb";     onTriggered: quickCmd("mtest 19 /badusb") }
-                            MenuSeparator {}
-                            MenuItem { text: "Format SD";        onTriggered: quickCmd("mtest 18 0") }
-                        }
-                    }
-
-                    // ── Power menu ──
-                    Button {
-                        text: "Power \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: powerMenu.open()
-                        Menu {
-                            id: powerMenu
-                            MenuItem { text: "Battery Info";         onTriggered: quickCmd("mtest 59 0") }
-                            MenuSeparator {}
-                            MenuItem { text: "Charger Dump (BQ25896)"; onTriggered: quickCmd("mtest 52 bc") }
-                            MenuItem { text: "Fuel Gauge Dump (BQ27421)"; onTriggered: quickCmd("mtest 53 bc") }
-                            MenuItem { text: "USB-PD Dump (FUSB302)"; onTriggered: quickCmd("mtest 52 pd") }
-                        }
-                    }
-
-                    // ── ESP32 menu ──
-                    Button {
-                        text: "ESP32 \u25BE"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        onClicked: espMenu.open()
-                        Menu {
-                            id: espMenu
-                            MenuItem { text: "Init ESP32";       onTriggered: quickCmd("mtest 70 0") }
-                            MenuItem { text: "Reset ESP32";      onTriggered: quickCmd("mtest 78 0") }
-                            MenuItem { text: "Deinit (for flash)"; onTriggered: quickCmd("mtest 79 0") }
-                            MenuSeparator {}
-                            MenuItem { text: "Ping ESP (link)";  onTriggered: quickCmd("mtest 72 0") }
-                            MenuItem { text: "Scan APs";         onTriggered: quickCmd("mtest 71 0") }
-                            MenuSeparator {}
-                            MenuItem {
-                                text: "Boot Snoop (~3s)"
-                                onTriggered: {
-                                    appendOutput("> [ESP32 UART Snoop] Capturing boot output (~3s)...")
-                                    m1device.sendEspUartSnoop()
-                                }
-                            }
+                        onClicked: {
+                            snoopBtn.enabled = false
+                            appendOutput("> [ESP32 UART Snoop] Capturing boot output (~3s)...")
+                            m1device.sendEspUartSnoop()
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    // ── Always-visible: Reboot & Power Off ──
+                    // ── Power menu (real RPC actions + on-device CLI variants) ──
                     Button {
-                        text: "Reboot"
+                        text: "Power ▾"
                         flat: true; font.pixelSize: 11; padding: 4
                         enabled: m1device.connected
                         Material.foreground: "#FFC107"
-                        onClicked: quickCmd("mtest 51 0")
-                    }
+                        onClicked: powerMenu.popup()
 
-                    Button {
-                        text: "Power Off"
-                        flat: true; font.pixelSize: 11; padding: 4
-                        enabled: m1device.connected
-                        Material.foreground: "#F44336"
-                        onClicked: quickCmd("mtest 50 0")
+                        Menu {
+                            id: powerMenu
+                            MenuItem {
+                                text: "Reboot"
+                                onTriggered: {
+                                    appendOutput("> [Power] Reboot — device will restart")
+                                    m1device.reboot()
+                                }
+                            }
+                            MenuItem {
+                                text: "Power off"
+                                onTriggered: {
+                                    appendOutput("> [Power] Power off")
+                                    m1device.shutdown()
+                                }
+                            }
+                            MenuSeparator {}
+                            MenuItem {
+                                text: "Reboot ESP32"
+                                onTriggered: quickCmd("mtest 78 0")
+                            }
+                            MenuItem {
+                                text: "Reboot menu (on-device)"
+                                onTriggered: quickCmd("mtest 51 0")
+                            }
+                            MenuSeparator {}
+                            MenuItem {
+                                text: "Enter DFU mode"
+                                onTriggered: {
+                                    appendOutput("> [Power] Entering DFU mode")
+                                    m1device.enterDfu()
+                                }
+                            }
+                        }
                     }
                 }
             }

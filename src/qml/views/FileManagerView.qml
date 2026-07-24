@@ -49,9 +49,56 @@ Item {
 
     // Build a proper remote path with separator
     function buildRemotePath(name) {
-        var p = currentPath
+        return pathJoin(currentPath, name)
+    }
+
+    function pathJoin(base, name) {
+        var p = base
         if (!p.endsWith("/")) p += "/"
         return p + name
+    }
+
+    // ── Rename / Move (cut+paste) + folder-aware delete ──
+    property var clipboardNames: []          // names cut for a move
+    property string clipboardSourcePath: ""  // folder they were cut from
+    property var moveQueue: []
+    property int moveTotal: 0
+    property string moveSrcPath: ""
+
+    function getSelectedEntries() {
+        var out = []
+        for (var i = 0; i < fileEntries.length; i++)
+            if (checkedState[i])
+                out.push({ name: fileEntries[i].name, isDir: fileEntries[i].isDir })
+        return out
+    }
+
+    // Folders delete recursively; files delete directly.
+    function deleteEntry(entry) {
+        if (entry.isDir) m1device.deleteTree(buildRemotePath(entry.name))
+        else             m1device.deleteFile(buildRemotePath(entry.name))
+    }
+
+    function cutSelection() {
+        var names = getSelectedNames()
+        if (names.length === 0) return
+        view.clipboardNames = names
+        view.clipboardSourcePath = currentPath
+        clearSelection()
+        view.statusText = "Cut " + names.length + " item(s) — open a folder and click Paste"
+    }
+
+    function startPaste() {
+        if (clipboardNames.length === 0) return
+        if (clipboardSourcePath === currentPath) {
+            view.statusText = "Those items are already in this folder"
+            return
+        }
+        moveSrcPath = clipboardSourcePath
+        moveQueue = clipboardNames.slice(1)
+        moveTotal = clipboardNames.length
+        view.statusText = "Moving " + clipboardNames[0] + " (1/" + moveTotal + ")..."
+        m1device.renameFile(pathJoin(moveSrcPath, clipboardNames[0]), buildRemotePath(clipboardNames[0]))
     }
 
     Connections {
@@ -103,15 +150,32 @@ Item {
             if (bulkDeleteQueue.length > 0) {
                 var next = bulkDeleteQueue.shift()
                 bulkDeleteQueue = bulkDeleteQueue  // trigger change
-                view.statusText = "Deleting " + next + " (" + (bulkDeleteTotal - bulkDeleteQueue.length) + "/" + bulkDeleteTotal + ")..."
+                view.statusText = "Deleting " + next.name + " (" + (bulkDeleteTotal - bulkDeleteQueue.length) + "/" + bulkDeleteTotal + ")..."
                 view.pendingDelete = true
-                m1device.deleteFile(buildRemotePath(next))
+                deleteEntry(next)
             } else {
                 view.pendingDelete = false
                 view.statusText = bulkDeleteTotal > 1
                     ? "Deleted " + bulkDeleteTotal + " items"
                     : "Deleted successfully"
                 bulkDeleteTotal = 0
+                refresh()
+            }
+        }
+        function onFileRenameComplete() {
+            if (moveQueue.length > 0) {
+                var next = moveQueue.shift()
+                moveQueue = moveQueue  // trigger change
+                view.statusText = "Moving " + next + " (" + (moveTotal - moveQueue.length) + "/" + moveTotal + ")..."
+                m1device.renameFile(pathJoin(moveSrcPath, next), buildRemotePath(next))
+            } else if (moveTotal > 0) {
+                view.clipboardNames = []
+                view.clipboardSourcePath = ""
+                moveTotal = 0
+                view.statusText = "Move complete"
+                refresh()
+            } else {
+                view.statusText = "Renamed"
                 refresh()
             }
         }
@@ -179,13 +243,13 @@ Item {
         m1device.requestFileList(target)
     }
 
-    function bulkDelete(names) {
-        if (names.length === 0) return
-        bulkDeleteQueue = names.slice(1)
-        bulkDeleteTotal = names.length
+    function bulkDelete(entries) {
+        if (entries.length === 0) return
+        bulkDeleteQueue = entries.slice(1)
+        bulkDeleteTotal = entries.length
         view.pendingDelete = true
-        view.statusText = "Deleting " + names[0] + " (1/" + names.length + ")..."
-        m1device.deleteFile(buildRemotePath(names[0]))
+        view.statusText = "Deleting " + entries[0].name + " (1/" + entries.length + ")..."
+        deleteEntry(entries[0])
     }
 
     ColumnLayout {
@@ -226,6 +290,13 @@ Item {
                 text: "New Folder"
                 enabled: m1device.connected && m1device.sdMounted
                 onClicked: newFolderDialog.open()
+            }
+            Button {
+                text: "Paste (" + view.clipboardNames.length + ")"
+                visible: view.clipboardNames.length > 0
+                enabled: m1device.connected && m1device.sdMounted
+                Material.foreground: "#4CAF50"
+                onClicked: startPaste()
             }
             Button {
                 text: m1device.sdMounted ? "Unmount SD" : "Mount SD"
@@ -300,14 +371,20 @@ Item {
                 onClicked: clearSelection()
             }
             Button {
+                text: "Cut / Move"
+                flat: true
+                font.pixelSize: 12
+                onClicked: cutSelection()
+            }
+            Button {
                 text: "Delete Selected"
                 flat: true
                 font.pixelSize: 12
                 Material.foreground: "#F44336"
                 onClicked: {
-                    var names = getSelectedNames()
-                    if (names.length > 0) {
-                        bulkDeleteConfirm.itemNames = names
+                    var entries = getSelectedEntries()
+                    if (entries.length > 0) {
+                        bulkDeleteConfirm.entries = entries
                         bulkDeleteConfirm.open()
                     }
                 }
@@ -398,10 +475,13 @@ Item {
                     }
 
                     Button {
-                        text: "\u2B07"
+                        text: "\u2B07\uFE0F"          // download
                         visible: !modelData.isDir
                         flat: true
-                        font.pixelSize: 14
+                        font.pixelSize: 15
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 400
+                        ToolTip.text: "Download to this PC"
                         onClicked: {
                             downloadDialog.remotePath = buildRemotePath(modelData.name)
                             var f = uiSettings.dialogFolder("fileDownload")
@@ -411,12 +491,30 @@ Item {
                     }
 
                     Button {
-                        text: "\uD83D\uDDD1"
-                        visible: true
+                        text: "\uD83D\uDCDD"          // rename (memo/pencil)
                         flat: true
-                        font.pixelSize: 14
+                        font.pixelSize: 15
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 400
+                        ToolTip.text: modelData.isDir ? "Rename folder" : "Rename file"
+                        onClicked: {
+                            renameDialog.oldName = modelData.name
+                            renameDialog.isDir = modelData.isDir
+                            renameField.text = modelData.name
+                            renameDialog.open()
+                        }
+                    }
+
+                    Button {
+                        text: "\uD83D\uDDD1\uFE0F"    // delete
+                        flat: true
+                        font.pixelSize: 15
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 400
+                        ToolTip.text: modelData.isDir ? "Delete folder + contents" : "Delete file"
                         onClicked: {
                             deleteConfirm.itemName = modelData.name
+                            deleteConfirm.itemIsDir = modelData.isDir
                             deleteConfirm.open()
                         }
                     }
@@ -514,23 +612,63 @@ Item {
     Dialog {
         id: deleteConfirm
         property string itemName: ""
+        property bool itemIsDir: false
         title: "Delete"
         modal: true
         anchors.centerIn: parent
         standardButtons: Dialog.Yes | Dialog.No
 
-        Label { text: "Delete \"" + deleteConfirm.itemName + "\"?" }
+        Label {
+            text: deleteConfirm.itemIsDir
+                  ? "Delete folder \"" + deleteConfirm.itemName + "\" and everything inside it?"
+                  : "Delete \"" + deleteConfirm.itemName + "\"?"
+            wrapMode: Text.Wrap
+        }
 
         onAccepted: {
             view.pendingDelete = true
             view.statusText = "Deleting " + itemName + "..."
-            m1device.deleteFile(buildRemotePath(itemName))
+            deleteEntry({ name: itemName, isDir: itemIsDir })
+        }
+    }
+
+    Dialog {
+        id: renameDialog
+        property string oldName: ""
+        property bool isDir: false
+        title: "Rename"
+        modal: true
+        anchors.centerIn: parent
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        ColumnLayout {
+            spacing: 8
+            Label {
+                text: renameDialog.isDir ? "New folder name:" : "New file name:"
+                font.pixelSize: 12
+                color: Material.hintTextColor
+            }
+            TextField {
+                id: renameField
+                Layout.preferredWidth: 320
+                selectByMouse: true
+                onAccepted: renameDialog.accept()
+            }
+        }
+
+        onAccepted: {
+            var nn = renameField.text.trim()
+            if (nn.length > 0 && nn !== renameDialog.oldName) {
+                view.moveTotal = 0   // single rename, not a move
+                view.statusText = "Renaming to " + nn + "..."
+                m1device.renameFile(buildRemotePath(renameDialog.oldName), buildRemotePath(nn))
+            }
         }
     }
 
     Dialog {
         id: bulkDeleteConfirm
-        property var itemNames: []
+        property var entries: []
         title: "Bulk Delete"
         modal: true
         anchors.centerIn: parent
@@ -538,9 +676,17 @@ Item {
 
         Label {
             text: {
-                var n = bulkDeleteConfirm.itemNames.length
-                var msg = "Delete " + n + " items?"
-                var preview = bulkDeleteConfirm.itemNames.slice(0, 10)
+                var e = bulkDeleteConfirm.entries
+                var n = e.length
+                var hasDir = false
+                var names = []
+                for (var i = 0; i < n; i++) {
+                    names.push(e[i].name)
+                    if (e[i].isDir) hasDir = true
+                }
+                var msg = "Delete " + n + " item(s)?"
+                if (hasDir) msg += "  Folders are deleted with all their contents."
+                var preview = names.slice(0, 10)
                 if (preview.length > 0)
                     msg += "\n\n" + preview.join("\n")
                 if (n > 10)
@@ -552,7 +698,7 @@ Item {
 
         onAccepted: {
             clearSelection()
-            bulkDelete(itemNames)
+            bulkDelete(entries)
         }
     }
 

@@ -16,13 +16,42 @@ ApplicationWindow {
     
     property string filePathFilter: Qt.platform.os === "windows" ? "file:///" : "file://"
 
-    Material.theme: Material.Dark
+    // ── qMonstatek self-update check (the APP only — firmware is never auto-checked) ──
+    property bool appUpdateAvailable: false
+    property string appUpdateVersion: ""
+
+    function checkAppUpdate() {
+        var parts = Qt.application.version.split(".")
+        appUpdateChecker.checkForUpdates(parseInt(parts[0]) || 0,
+                                         parseInt(parts[1]) || 0,
+                                         parseInt(parts[2]) || 0, 0, 0)
+    }
+
+    Connections {
+        target: appUpdateChecker
+        function onReleaseFound(info) {
+            root.appUpdateAvailable = true
+            root.appUpdateVersion = info.versionFormatted
+        }
+    }
+
+    // First check shortly after launch, then a couple of times a day.
+    Timer { interval: 8000;             running: true; repeat: false; onTriggered: root.checkAppUpdate() }
+    Timer { interval: 6 * 60 * 60 * 1000; running: true; repeat: true;  onTriggered: root.checkAppUpdate() }
+
+    Material.theme: uiSettings.theme === "light" ? Material.Light : Material.Dark
     Material.accent: Material.Green
     Material.primary: Material.BlueGrey
 
     // ── Status Bar ──
     header: StatusBar {
         id: statusBar
+        updateAvailable: root.appUpdateAvailable
+        updateVersion: root.appUpdateVersion
+        onOpenUpdate: {
+            contentStack.currentIndex = viewIndex("about")
+            sidebar.selectedIndex = viewIndex("about")
+        }
     }
 
     // ── Main Layout: Sidebar + Content ──
@@ -71,37 +100,9 @@ ApplicationWindow {
             PowerView          { id: powerView }           // 10
             AboutView          { id: aboutView }           // 11
 
-            // ── Connect Prompt (shown when no device connected) ── // 12
-            Item {
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    spacing: 16
-
-                    Label {
-                        text: m1device.connected ? "Connecting..." : "Connect M1"
-                        font.pixelSize: 28
-                        font.bold: true
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-
-                    Label {
-                        text: m1device.connected
-                              ? "Reading device info..."
-                              : "Connect your M1 device to get started.\nDFU Flash and SWD Recovery are available without a connection."
-                        font.pixelSize: 14
-                        color: Material.hintTextColor
-                        horizontalAlignment: Text.AlignHCenter
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-
-                    Button {
-                        visible: !m1device.connected
-                        text: "Connect"
-                        highlighted: true
-                        Layout.alignment: Qt.AlignHCenter
-                        onClicked: deviceSelector.open()
-                    }
-                }
+            // ── Welcome / Connect Prompt (shown when no device connected) ── // 12
+            WelcomeView {
+                onConnectRequested: deviceSelector.open()
             }
 
             // ── Incompatible Firmware (connected but no RPC support) ── // 13
@@ -203,7 +204,19 @@ ApplicationWindow {
             if (m1device.hasDeviceInfo) {
                 // Compatible firmware detected
                 incompatibleCheckTimer.stop()
-                if (contentStack.currentIndex === 12 || contentStack.currentIndex === 13) {
+                // The minimal Recovery FW reports v0.8.0.0-C3.1 — keep the recovery
+                // tools open for it so it can still be re-flashed.
+                var isRecovery = (m1device.fwMajor === 0 && m1device.fwMinor === 8 &&
+                                  m1device.fwBuild === 0 && m1device.fwRC === 0 &&
+                                  m1device.c3Revision === 1)
+                var idx = contentStack.currentIndex
+                // Placeholders (12/13) always yield; the real DFU Flash (6) and SWD
+                // Flash (7) views yield only for a genuine working firmware. Close any
+                // open popups on those screens as we leave.
+                if (idx === 12 || idx === 13 ||
+                    ((idx === 6 || idx === 7) && !isRecovery)) {
+                    dfuFlashView.closeAllPopups()
+                    swdRecoveryView.closeAllPopups()
                     contentStack.currentIndex = 0
                     sidebar.selectedIndex = 0
                 }

@@ -297,6 +297,39 @@ void SwdRecovery::swapBank()
     runOpenOcd(cmds, "Swap Bank");
 }
 
+void SwdRecovery::verifyBank1(const QString &binFilePath)
+{
+    if (m_running) {
+        emit operationError("An operation is already in progress.");
+        return;
+    }
+
+    QFileInfo fi(binFilePath);
+    if (!fi.exists()) {
+        emit operationError("Firmware file not found: " + binFilePath);
+        return;
+    }
+
+    QString path = fi.absoluteFilePath().replace('\\', '/');
+
+    // Check SWAP_BANK to find physical bank 1's address:
+    //   SWAP_BANK=0: bank 1 at 0x08000000
+    //   SWAP_BANK=1: bank 1 at 0x08100000 (swapped)
+    QString cmds = QString(
+        "adapter speed 2000; init; "
+        "halt; "
+        "set optr [mrw 0x40022050]; "
+        "if {$optr & 0x80000000} {"
+        "  verify_image {%1} 0x08100000"
+        "} else {"
+        "  verify_image {%1} 0x08000000"
+        "}; "
+        "exit"
+    ).arg(path);
+
+    runOpenOcd(cmds, "Verify Bank 1");
+}
+
 void SwdRecovery::verifyBank2(const QString &binFilePath)
 {
     if (m_running) {

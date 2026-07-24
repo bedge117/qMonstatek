@@ -349,12 +349,26 @@ Item {
 
                 RowLayout {
                     Label { text: "Theme:" }
+
+                    ButtonGroup { id: themeGroup }
+
                     RadioButton {
+                        id: darkRadio
                         text: "Dark"
-                        checked: true
+                        ButtonGroup.group: themeGroup
+                        onClicked: uiSettings.theme = "dark"
                     }
                     RadioButton {
+                        id: lightRadio
                         text: "Light"
+                        ButtonGroup.group: themeGroup
+                        onClicked: uiSettings.theme = "light"
+                    }
+
+                    // Reflect the persisted setting on load
+                    Component.onCompleted: {
+                        if (uiSettings.theme === "light") lightRadio.checked = true
+                        else darkRadio.checked = true
                     }
                 }
             }

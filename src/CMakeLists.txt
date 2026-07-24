@@ -20,6 +20,8 @@ qt_add_qml_module(qmonstatek
         qml/components/DeviceSelector.qml
         qml/components/VirtualButtonPad.qml
         qml/components/MonoDisplay.qml
+        qml/components/M1DeviceSkin.qml
+        qml/components/WelcomeView.qml
         qml/views/DeviceInfoView.qml
         qml/views/ScreenMirrorView.qml
         qml/views/FileManagerView.qml
@@ -41,6 +43,9 @@ qt_add_resources(qmonstatek "app_resources"
     FILES
         resources/icons/app_icon.png
         resources/icons/qmonstatek.ico
+        resources/images/enter_dfu.png
+        resources/images/reboot_device.png
+        resources/images/swd_recovery.png
 )
 
 target_link_libraries(qmonstatek PRIVATE

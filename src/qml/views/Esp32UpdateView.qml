@@ -37,9 +37,15 @@ Item {
     // Size-mismatch warning (live sanity check)
     property string sizeWarning: ""
 
-    // Set by whichever flow triggers the flash
+    // The firmware that the single "Flash ESP32" button will write (set by
+    // whichever source flow ran last — download, rollback, or browse).
     property string flashFilePath: ""
     property string flashFileName: ""
+
+    function basename(p) {
+        var parts = p.split(/[/\\]/)
+        return parts[parts.length - 1]
+    }
 
     Connections {
         target: m1device
@@ -55,17 +61,19 @@ Item {
         function onEspUpdateComplete() {
             view.updating = false
             view.espPhase = ""
-            espStatusLabel.text = "Success! ESP32 firmware flashed successfully!\n" +
-                               "Reboot the M1 to start the new firmware."
+            espStatusLabel.text = "Success — ESP32 firmware flashed."
             espStatusLabel.color = "#4CAF50"
             espStatusLabel.visible = true
+            espDoneDialog.open()
         }
         function onEspUpdateError(message) {
             view.updating = false
             view.espPhase = ""
-            espStatusLabel.text = "Error: " + message
+            espStatusLabel.text = "Flash failed: " + message + "  —  reboot the M1 and try again."
             espStatusLabel.color = "#F44336"
             espStatusLabel.visible = true
+            espErrorDialog.detail = message
+            espErrorDialog.open()
         }
     }
 
@@ -76,8 +84,14 @@ Item {
             view.releaseInfo = info
         }
         function onNoUpdateAvailable(message) {
-            ghStatusLabel.text = message
-            ghStatusLabel.color = Material.hintTextColor
+            if (message.indexOf("No releases") === 0) {
+                ghStatusLabel.text = "No release found on " + esp32Checker.repoUrl +
+                    ". Download the .bin from its Releases page, then use 'Browse this PC'."
+                ghStatusLabel.color = "#E0A030"
+            } else {
+                ghStatusLabel.text = message
+                ghStatusLabel.color = "#4CAF50"
+            }
             ghStatusLabel.visible = true
         }
         function onCheckError(message) {
@@ -90,8 +104,7 @@ Item {
         }
         function onDownloadComplete(filePath) {
             view.downloading = false
-            var parts = filePath.split(/[/\\]/)
-            var fname = parts[parts.length - 1]
+            var fname = view.basename(filePath)
             var nameLower = fname.toLowerCase()
 
             if (nameLower.endsWith(".md5")) {
@@ -106,6 +119,8 @@ Item {
             // Firmware binary
             view.downloadedFilePath = filePath
             view.downloadedFileName = fname
+            view.flashFilePath = filePath
+            view.flashFileName = fname
             if (view.releaseInfo)
                 view.downloadedVersion = view.releaseInfo.version || ""
 
@@ -246,6 +261,333 @@ Item {
         xhr.send()
     }
 
+    // ===================== Popups =====================
+
+    // ── "Factory vs app-only?" explainer ──
+    Dialog {
+        id: espImageDialog
+        title: "Factory vs app-only image"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(view.width - 60, 560)
+        height: Math.min(view.height - 80, 500)
+        standardButtons: Dialog.Close
+
+        contentItem: ScrollView {
+            clip: true
+            ColumnLayout {
+                width: espImageDialog.availableWidth
+                spacing: 12
+
+                Label {
+                    text: "The ESP32 firmware comes in two forms, written to different flash offsets:"
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14
+                }
+                Label {
+                    text: "Factory image (0x00000) — bootloader + partition table + app, all in one. " +
+                          "Use it for a first-time flash, a recovery, or whenever the partition layout " +
+                          "might have changed. This is the safe default."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14
+                }
+                Label {
+                    text: "App-only image (0x60000) — just the application partition. Smaller and faster, " +
+                          "but only safe when the bootloader and partition table already on the ESP32 " +
+                          "match this build."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14; color: Material.hintTextColor
+                }
+                Label {
+                    text: "When in doubt, use the factory image. It's the complete, self-sufficient one — " +
+                          "it can't leave the ESP32 in a half-updated state, so it always works."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14; font.bold: true; color: "#4CAF50"
+                }
+                Label {
+                    text: "qMonstatek picks the offset automatically from the file name (files with " +
+                          "\"factory\" flash at 0x00000) and warns if the file size doesn't match the choice."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 13; color: Material.hintTextColor
+                }
+            }
+        }
+    }
+
+    // ── "Which ESP firmware?" explainer ──
+    Dialog {
+        id: espFirmwareDialog
+        title: "Which ESP32 firmware?"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(view.width - 60, 560)
+        height: Math.min(view.height - 80, 460)
+        standardButtons: Dialog.Close
+
+        contentItem: ScrollView {
+            clip: true
+            ColumnLayout {
+                width: espFirmwareDialog.availableWidth
+                spacing: 12
+
+                Label {
+                    text: "The ESP32-C6 is a separate co-processor — a second chip that handles WiFi, " +
+                          "Bluetooth, and the other radios. It runs its own firmware, independent of the " +
+                          "main M1 firmware, and the two talk to each other over an internal link."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14
+                }
+                Label {
+                    text: "Because they're separate, the M1 firmware and the ESP32 firmware have to speak " +
+                          "the same language. A given M1 build expects a matching ESP32 build — features " +
+                          "like WiFi scanning or BLE only work when the two versions are compatible."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14
+                }
+                Label {
+                    text: "You can keep two different M1 firmwares side by side and switch between them in " +
+                          "Dual Boot — but each may need its own compatible ESP32 firmware. If WiFi/BLE " +
+                          "stops working after you switch M1 firmware, the fix is usually to flash the ESP32 " +
+                          "build that matches the M1 firmware you're now running."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14; color: Material.hintTextColor
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Material.dividerColor }
+
+                Label { text: "The two builds"; font.bold: true; font.pixelSize: 14 }
+                Label {
+                    text: "SPI Brain (current) — what the C3 M1 firmware uses today; it runs the radio " +
+                          "features over the internal SPI link. Get it with \"Download latest\". This is " +
+                          "the one you almost always want."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14
+                }
+                Label {
+                    text: "AT firmware (legacy) — the older ESP-AT build. \"Roll back to AT firmware\" " +
+                          "fetches and flashes it if you need to return to the legacy behaviour. Most " +
+                          "people never need this."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14; color: Material.hintTextColor
+                }
+                Label {
+                    text: "In short: match the ESP32 firmware to your M1 firmware, and when unsure, download " +
+                          "the latest SPI brain and flash it as a factory image. Download repos are set in Settings."
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14; font.bold: true; color: "#4CAF50"
+                }
+            }
+        }
+    }
+
+    // ── Flash-failed popup — makes the "reboot first" fix unmistakable ──
+    Dialog {
+        id: espErrorDialog
+        title: "ESP32 flash failed"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(view.width - 60, 560)
+        standardButtons: Dialog.Close
+        property string detail: ""
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+
+            Label {
+                text: "The ESP32 update didn't complete."
+                font.pixelSize: 16; font.bold: true; color: "#F44336"
+                wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 480
+            }
+            Label {
+                visible: espErrorDialog.detail.length > 0
+                text: "Reported: " + espErrorDialog.detail
+                font.pixelSize: 12; color: Material.hintTextColor
+                wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 480
+            }
+            Label {
+                text: "Reboot the M1, then flash again — this is almost always the fix."
+                font.pixelSize: 15; font.bold: true; color: "#4CAF50"
+                wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 480
+            }
+            Label {
+                text: "Flashing the ESP32 needs the M1 to hand over a clean link and buffer. If a radio " +
+                      "feature is still running or the M1's memory is fragmented from earlier use, the " +
+                      "transfer can't start — and after any WiFi/BLE activity that's usually the state it's " +
+                      "in. A fresh reboot clears it. Afterwards, Initialize the ESP if it isn't Ready, then flash."
+                font.pixelSize: 13; color: Material.hintTextColor
+                wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 480
+            }
+            Button {
+                text: "Reboot M1 now"
+                highlighted: true
+                enabled: m1device.connected
+                onClicked: { m1device.reboot(); espErrorDialog.close() }
+            }
+        }
+    }
+
+    // ── Troubleshooting / FAQ ──
+    Dialog {
+        id: espFaqDialog
+        title: "ESP32 update — troubleshooting"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(view.width - 60, 600)
+        height: Math.min(view.height - 80, 560)
+        standardButtons: Dialog.Close
+
+        contentItem: ScrollView {
+            clip: true
+            ColumnLayout {
+                width: espFaqDialog.availableWidth
+                spacing: 16
+
+                Repeater {
+                    model: [
+                        {
+                            q: "The flash fails, stalls, or times out",
+                            a: "Reboot the M1 and try again — this is the number-one fix. The ESP update needs " +
+                               "the M1 to free the radio link and hand over a clean buffer; if a WiFi/BLE feature " +
+                               "was in use or memory is fragmented, it can't start. A fresh reboot clears that state."
+                        },
+                        {
+                            q: "ESP32 shows \"Not initialized\"",
+                            a: "Press Initialize (needs a connected M1). If it won't initialize, reboot the M1 first " +
+                               "— the same busy/low-memory condition blocks init too."
+                        },
+                        {
+                            q: "It says MD5 MISMATCH after downloading",
+                            a: "The download was corrupted or the .md5 doesn't match the .bin. Don't flash it — " +
+                               "download the firmware again. Flashing is blocked while a mismatch is showing."
+                        },
+                        {
+                            q: "WiFi/BLE stopped working after switching M1 firmware",
+                            a: "The ESP32 firmware must match the M1 firmware you're running. Flash the ESP build " +
+                               "that goes with it — usually the latest SPI brain as a factory image (see \"Which ESP firmware?\")."
+                        },
+                        {
+                            q: "Which image type should I pick?",
+                            a: "When in doubt, use the factory image — it's complete and always safe. App-only is " +
+                               "faster but only works when the bootloader/partitions already match."
+                        }
+                    ]
+                    delegate: ColumnLayout {
+                        Layout.fillWidth: true; spacing: 3
+                        Label { text: modelData.q; font.bold: true; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14 }
+                        Label { text: modelData.a; wrapMode: Text.WordWrap; Layout.fillWidth: true; color: Material.hintTextColor; font.pixelSize: 13 }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Completion popup ──
+    Dialog {
+        id: espDoneDialog
+        title: "ESP32 flash complete"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(view.width - 60, 520)
+        standardButtons: Dialog.Ok
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+
+            Label {
+                text: "ESP32 firmware flashed successfully."
+                font.pixelSize: 16; font.bold: true; color: "#4CAF50"
+                wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 460
+            }
+            Label {
+                text: "Reboot the M1 (or use Reboot ESP + Initialize above) so it reconnects to the " +
+                      "newly-flashed ESP32."
+                font.pixelSize: 14; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 460
+            }
+        }
+    }
+
+    // ── Release notes popup ──
+    Dialog {
+        id: releaseNotesDialog
+        title: "Release notes"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(view.width - 60, 640)
+        height: Math.min(view.height - 80, 640)
+        standardButtons: Dialog.Close
+
+        contentItem: ScrollView {
+            clip: true
+            ColumnLayout {
+                width: releaseNotesDialog.availableWidth
+                spacing: 12
+
+                Label {
+                    text: view.releaseInfo ? view.releaseInfo.name : ""
+                    font.pixelSize: 17; font.bold: true
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true
+                }
+                Label {
+                    text: view.releaseInfo
+                          ? view.releaseInfo.versionFormatted +
+                            (view.releaseInfo.prerelease ? "   (pre-release)" : "")
+                          : ""
+                    color: Material.accent; font.pixelSize: 14
+                }
+                Label {
+                    text: view.releaseInfo ? view.releaseInfo.publishedAt : ""
+                    color: Material.hintTextColor; font.pixelSize: 12
+                }
+                Label {
+                    text: "<a href='gh'>View this release on GitHub</a>"
+                    textFormat: Text.RichText
+                    font.pixelSize: 16
+                    linkColor: "#8FCBFF"; font.bold: true
+                    visible: view.releaseInfo && view.releaseInfo.htmlUrl && view.releaseInfo.htmlUrl.length > 0
+                    onLinkActivated: Qt.openUrlExternally(view.releaseInfo.htmlUrl)
+                    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Material.dividerColor }
+
+                Label { text: "Notes"; font.bold: true; font.pixelSize: 14 }
+                Label {
+                    text: view.releaseInfo ? view.releaseInfo.body : ""
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    font.pixelSize: 14
+                    lineHeight: 1.25
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Material.dividerColor }
+
+                Label { text: "Assets (manual download)"; font.bold: true; font.pixelSize: 14 }
+                Repeater {
+                    model: view.releaseInfo ? view.releaseInfo.assets : []
+                    delegate: RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Label { text: modelData.name; font.pixelSize: 12; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
+                        Label { text: (modelData.size / 1024).toFixed(0) + " KB"; font.pixelSize: 11; color: Material.hintTextColor }
+                        Button {
+                            text: "Download"
+                            enabled: !view.downloading
+                            font.pixelSize: 11
+                            onClicked: {
+                                view.downloading = true
+                                view.downloadPercent = 0
+                                if (!modelData.name.toLowerCase().endsWith(".md5")) {
+                                    view.downloadedFilePath = ""
+                                    view.downloadedFileName = ""
+                                }
+                                esp32Checker.downloadAsset(modelData.downloadUrl, modelData.name)
+                            }
+                        }
+                    }
+                }
+                ProgressBar {
+                    visible: view.downloading
+                    Layout.fillWidth: true
+                    value: view.downloadPercent / 100.0
+                }
+            }
+        }
+    }
+
+    // ===================== Main content =====================
+
     ScrollView {
         anchors.fill: parent
         contentWidth: availableWidth
@@ -254,65 +596,65 @@ Item {
             width: view.width
             spacing: 16
 
+            // ── Title ──
             Label {
                 text: "ESP32-C6 Firmware Update"
-                font.pixelSize: 24
+                font.pixelSize: 26
                 font.bold: true
+                color: "#26A69A"   // teal — the ESP32 radio coprocessor
                 Layout.topMargin: 24
                 Layout.leftMargin: 24
             }
 
+            // Subtitle
             Label {
-                text: "Flash ESP32-C6 coprocessor firmware directly via the M1."
-                color: Material.hintTextColor
-                Layout.leftMargin: 24
-            }
-
-            // ESP32 status
-            Pane {
+                text: "Flash the ESP32-C6 radio coprocessor's firmware through the connected M1. " +
+                      "No extra software is needed — the M1 talks to the ESP32's bootloader directly, " +
+                      "so a compatible M1 on USB is all it takes."
+                wrapMode: Text.WordWrap
                 Layout.fillWidth: true
+                Layout.topMargin: 8
                 Layout.leftMargin: 24
                 Layout.rightMargin: 24
-                Material.elevation: 1
+                color: "white"
+                font.pixelSize: 15
+            }
 
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: 12
+            // Help links
+            Flow {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                spacing: 26
 
-                    Label { text: "ESP32 Status:"; font.bold: true }
-                    Label {
-                        text: m1device.esp32Ready ? "Ready" : "Not initialized"
-                        color: m1device.esp32Ready ? "#4CAF50" : "#F44336"
-                    }
-                    Item { Layout.fillWidth: true }
-                    Label { text: "Version:" }
-                    Label {
-                        id: espVersionLabel
-                        text: m1device.esp32Version.length > 0 ? m1device.esp32Version : "Unknown"
-                    }
-                    Button {
-                        text: "Initialize"
-                        visible: !m1device.esp32Ready
-                        enabled: m1device.connected && !view.updating
-                        onClicked: m1device.initEsp32()
-                    }
-                    Button {
-                        text: "Reboot ESP"
-                        enabled: m1device.connected && !view.updating
-                        onClicked: m1device.rebootEsp32()
-                    }
-                    Button {
-                        text: "Refresh"
-                        enabled: m1device.connected
-                        onClicked: {
-                            m1device.requestDeviceInfo()
-                            m1device.requestEspInfo()
-                        }
-                    }
+                Label {
+                    text: "<a href='img'>Factory vs app-only?</a>"
+                    textFormat: Text.RichText
+                    font.pixelSize: 15
+                    linkColor: "#8FCBFF"; font.bold: true
+                    onLinkActivated: espImageDialog.open()
+                    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
+                }
+                Label {
+                    text: "<a href='fw'>Which ESP firmware?</a>"
+                    textFormat: Text.RichText
+                    font.pixelSize: 15
+                    linkColor: "#8FCBFF"; font.bold: true
+                    onLinkActivated: espFirmwareDialog.open()
+                    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
+                }
+                Label {
+                    text: "<a href='faq'>Troubleshooting</a>"
+                    textFormat: Text.RichText
+                    font.pixelSize: 15
+                    linkColor: "#8FCBFF"; font.bold: true
+                    onLinkActivated: espFaqDialog.open()
+                    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
                 }
             }
 
-            // Flash address selector
+            // ── ESP32 status ──
             Pane {
                 Layout.fillWidth: true
                 Layout.leftMargin: 24
@@ -323,50 +665,53 @@ Item {
                     anchors.fill: parent
                     spacing: 8
 
-                    Label { text: "Flash Configuration"; font.bold: true }
+                    Label { text: "ESP32 status"; font.bold: true; font.pixelSize: 16 }
 
-                    ButtonGroup { id: imageTypeGroup }
-
-                    RadioButton {
-                        id: factoryRadio
-                        text: "Factory Image — bootloader + partition table + app (0x00000)"
-                        checked: true
-                        ButtonGroup.group: imageTypeGroup
-                        onCheckedChanged: if (checked) { view.flashAddr = 0x00000; view.checkSizeWarning() }
-                    }
-
-                    RadioButton {
-                        id: appRadio
-                        text: "App-Only — application partition only (0x60000)"
-                        ButtonGroup.group: imageTypeGroup
-                        onCheckedChanged: if (checked) { view.flashAddr = 0x60000; view.checkSizeWarning() }
-                    }
-
-                    Label {
-                        text: factoryRadio.checked
-                              ? "Factory image includes bootloader + partition table + app. " +
-                                "Use for first-time flash or when changing partition layout."
-                              : "App-only image is smaller and faster. " +
-                                "Use only if bootloader and partition table are already correct."
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: 11
-                        color: Material.hintTextColor
+                    RowLayout {
                         Layout.fillWidth: true
-                    }
+                        spacing: 12
 
-                    Label {
-                        visible: view.sizeWarning.length > 0
-                        text: view.sizeWarning
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: 12
-                        font.bold: true
-                        color: "#FF9800"
-                        Layout.fillWidth: true
+                        Rectangle {
+                            width: 12; height: 12; radius: 6
+                            color: m1device.esp32Ready ? "#4CAF50" : "#F44336"
+                        }
+                        Label {
+                            text: m1device.esp32Ready ? "Ready" : "Not initialized"
+                            font.pixelSize: 14
+                            font.bold: true
+                            color: m1device.esp32Ready ? "#4CAF50" : "#F44336"
+                        }
+                        Label { text: "Version:"; font.pixelSize: 13; color: Material.hintTextColor }
+                        Label {
+                            id: espVersionLabel
+                            text: m1device.esp32Version.length > 0 ? m1device.esp32Version : "Unknown"
+                            font.pixelSize: 13
+                        }
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            text: "Initialize"
+                            visible: !m1device.esp32Ready
+                            enabled: m1device.connected && !view.updating
+                            onClicked: m1device.initEsp32()
+                        }
+                        Button {
+                            text: "Reboot ESP"
+                            enabled: m1device.connected && !view.updating
+                            onClicked: m1device.rebootEsp32()
+                        }
+                        Button {
+                            text: "Refresh"
+                            enabled: m1device.connected
+                            onClicked: {
+                                m1device.requestDeviceInfo()
+                                m1device.requestEspInfo()
+                            }
+                        }
                     }
                 }
             }
 
-            // Download from GitHub
+            // ── Image type / flash address ──
             Pane {
                 Layout.fillWidth: true
                 Layout.leftMargin: 24
@@ -375,24 +720,73 @@ Item {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 12
+                    spacing: 8
 
-                    Label { text: "Download from GitHub"; font.bold: true }
+                    Label { text: "Image type"; font.bold: true; font.pixelSize: 16 }
+
+                    ButtonGroup { id: imageTypeGroup }
+
+                    RadioButton {
+                        id: factoryRadio
+                        text: "Factory image  (0x00000)"
+                        font.pixelSize: 14
+                        checked: true
+                        ButtonGroup.group: imageTypeGroup
+                        onCheckedChanged: if (checked) { view.flashAddr = 0x00000; view.checkSizeWarning() }
+                    }
+
+                    RadioButton {
+                        id: appRadio
+                        text: "App-only  (0x60000)"
+                        font.pixelSize: 14
+                        ButtonGroup.group: imageTypeGroup
+                        onCheckedChanged: if (checked) { view.flashAddr = 0x60000; view.checkSizeWarning() }
+                    }
 
                     Label {
-                        text: "SPI brain firmware (current): bedge117/m1-esp32-brain\n" +
-                              "Roll back to legacy ESP-AT firmware: bedge117/esp32-at-monstatek-m1"
-                        font.pixelSize: 11
-                        color: Material.hintTextColor
+                        text: factoryRadio.checked
+                              ? "Bootloader + partition table + app. Safe default — use for first-time or recovery flashes."
+                              : "Application partition only. Faster, but only if the bootloader/partitions already match."
                         wrapMode: Text.WordWrap
+                        font.pixelSize: 13
+                        color: Material.hintTextColor
                         Layout.fillWidth: true
                     }
 
-                    RowLayout {
+                    Label {
+                        visible: view.sizeWarning.length > 0
+                        text: view.sizeWarning
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: "#FF9800"
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+
+            // ── Update ESP32: choose a source, then flash ──
+            Pane {
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                Material.elevation: 1
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 14
+
+                    Label { text: "Update ESP32 Firmware"; font.bold: true; font.pixelSize: 17 }
+
+                    // Step 1 — choose the firmware
+                    Label { text: "1.  Choose firmware"; font.bold: true; font.pixelSize: 15 }
+
+                    Flow {
+                        Layout.fillWidth: true
                         spacing: 12
 
                         Button {
-                            text: esp32Checker.checking ? "Checking..." : "Download Latest (SPI Brain)"
+                            text: esp32Checker.checking ? "Checking…" : "Download latest (SPI brain)"
                             highlighted: true
                             enabled: !esp32Checker.checking && !view.downloading && !view.updating
                             onClicked: {
@@ -412,24 +806,44 @@ Item {
                         }
 
                         Button {
-                            text: view.restoring ? "Restoring..." : "Roll back to AT firmware"
+                            text: view.restoring ? "Restoring…" : "Roll back to AT firmware"
                             enabled: !view.restoring && !view.downloading && !view.updating
                             onClicked: view.startRestore()
                         }
 
-                        Label {
-                            id: ghStatusLabel
-                            visible: false
-                            font.pixelSize: 12
-                            color: Material.hintTextColor
+                        Button {
+                            text: "Browse this PC…"
+                            enabled: !view.updating
+                            onClicked: {
+                                var f = uiSettings.dialogFolder("espOpen")
+                                if (f != "") espFileDialog.currentFolder = f
+                                espFileDialog.open()
+                            }
                         }
                     }
 
-                    // Restore status
+                    Label {
+                        text: "Downloads come from " + esp32Checker.repoUrl + ". Roll back fetches the " +
+                              "legacy ESP-AT build. Change the repo in Settings."
+                        font.pixelSize: 13
+                        color: Material.hintTextColor
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        id: ghStatusLabel
+                        visible: false
+                        font.pixelSize: 13
+                        color: Material.hintTextColor
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
                     Label {
                         visible: view.restoreStatus.length > 0
                         text: view.restoreStatus
-                        font.pixelSize: 12
+                        font.pixelSize: 13
                         color: {
                             if (view.restoreStatus.indexOf("Ready") >= 0) return "#4CAF50"
                             if (view.restoreStatus.indexOf("Error") >= 0 ||
@@ -441,85 +855,10 @@ Item {
                         Layout.fillWidth: true
                     }
 
-                    // Download progress
                     ProgressBar {
                         visible: view.downloading
                         Layout.fillWidth: true
                         value: view.downloadPercent / 100.0
-                    }
-
-                    // ── Downloaded firmware: ready to flash ──
-                    ColumnLayout {
-                        visible: view.downloadedFileName.length > 0 && !view.downloading
-                        spacing: 4
-
-                        RowLayout {
-                            spacing: 12
-
-                            Label {
-                                text: "Downloaded: " + view.downloadedFileName +
-                                      (view.downloadedVersion.length > 0
-                                       ? "  (" + view.downloadedVersion + ")" : "")
-                                font.pixelSize: 12
-                                color: "#4CAF50"
-                                Layout.fillWidth: true
-                            }
-
-                            Label {
-                                visible: view.md5Status === "verified"
-                                text: "MD5 Verified"
-                                font.pixelSize: 12
-                                font.bold: true
-                                color: "#4CAF50"
-                            }
-
-                            Label {
-                                visible: view.md5Status === "mismatch"
-                                text: "MD5 MISMATCH"
-                                font.pixelSize: 12
-                                font.bold: true
-                                color: "#F44336"
-                            }
-
-                            Label {
-                                visible: view.md5Status === "error"
-                                text: "MD5 Error"
-                                font.pixelSize: 12
-                                font.bold: true
-                                color: "#FF9800"
-                            }
-
-                            Label {
-                                text: "Target: 0x" + view.flashAddr.toString(16).toUpperCase().padStart(5, "0")
-                                      + (factoryRadio.checked ? " (Factory)" : " (App-Only)")
-                                font.family: "Courier New"
-                                font.pixelSize: 12
-                                color: Material.hintTextColor
-                            }
-
-                            Button {
-                                text: "Flash ESP32"
-                                highlighted: true
-                                enabled: m1device.connected && !view.updating
-                                         && view.md5Status !== "mismatch"
-                                onClicked: {
-                                    view.flashFilePath = view.downloadedFilePath
-                                    view.flashFileName = view.downloadedFileName
-                                    confirmDialog.open()
-                                }
-                            }
-                        }
-
-                        // MD5 mismatch detail
-                        Label {
-                            visible: view.md5Status === "mismatch"
-                            text: "Expected: " + view.md5Expected + "\nComputed: " + view.md5Computed
-                            font.family: "Courier New"
-                            font.pixelSize: 11
-                            color: "#F44336"
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
                     }
 
                     // ── MD5 file downloaded but no .bin yet ──
@@ -529,186 +868,145 @@ Item {
                                  && !view.downloading
                         text: "Checksum saved: " + view.md5FileName +
                               " — download the .bin file to verify and flash"
-                        font.pixelSize: 12
+                        font.pixelSize: 13
                         color: Material.hintTextColor
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
-                }
-            }
-
-            // Release info card
-            Pane {
-                visible: view.releaseInfo !== null
-                Layout.fillWidth: true
-                Layout.leftMargin: 24
-                Layout.rightMargin: 24
-                Material.elevation: 2
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 12
-
-                    Label {
-                        text: view.releaseInfo ? view.releaseInfo.name : ""
-                        font.pixelSize: 16
-                        font.bold: true
-                    }
-
-                    Label {
-                        text: view.releaseInfo
-                              ? "Version: " + view.releaseInfo.versionFormatted
-                              : ""
-                        color: Material.accent
-                    }
-
-                    Label {
-                        text: view.releaseInfo ? view.releaseInfo.publishedAt : ""
-                        font.pixelSize: 11
-                        color: Material.hintTextColor
-                    }
 
                     Rectangle {
                         Layout.fillWidth: true
+                        Layout.topMargin: 2
                         height: 1
                         color: Material.dividerColor
                     }
 
-                    Label {
-                        text: "Assets"
-                        font.bold: true
-                    }
-
-                    Repeater {
-                        model: view.releaseInfo ? view.releaseInfo.assets : []
-                        delegate: RowLayout {
-                            Layout.fillWidth: true
-
-                            Label {
-                                text: modelData.name
-                                font.pixelSize: 12
-                                Layout.fillWidth: true
-                            }
-                            Label {
-                                text: (modelData.size / 1024).toFixed(0) + " KB"
-                                font.pixelSize: 11
-                                color: Material.hintTextColor
-                            }
-                            Button {
-                                text: "Download"
-                                enabled: !view.downloading
-                                font.pixelSize: 11
-                                onClicked: {
-                                    view.downloading = true
-                                    view.downloadPercent = 0
-                                    // Only clear .bin state when downloading a .bin
-                                    if (!modelData.name.toLowerCase().endsWith(".md5")) {
-                                        view.downloadedFilePath = ""
-                                        view.downloadedFileName = ""
-                                    }
-                                    esp32Checker.downloadAsset(modelData.downloadUrl, modelData.name)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Flash Firmware from File ──
-            Pane {
-                Layout.fillWidth: true
-                Layout.leftMargin: 24
-                Layout.rightMargin: 24
-                Material.elevation: 1
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 12
-
-                    Label { text: "Flash Firmware from File"; font.bold: true }
-
+                    // ── Selected firmware summary ──
                     RowLayout {
+                        Layout.fillWidth: true
                         spacing: 12
 
-                        Button {
-                            text: "Select File..."
-                            enabled: m1device.connected && !view.updating
-                            onClicked: {
-                                var f = uiSettings.dialogFolder("espOpen")
-                                if (f != "") espFileDialog.currentFolder = f
-                                espFileDialog.open()
-                            }
-                        }
-
                         Label {
-                            text: view.selectedFileName.length > 0
-                                  ? view.selectedFileName
-                                  : "No file selected"
-                            color: view.selectedFileName.length > 0
-                                   ? Material.foreground
-                                   : Material.hintTextColor
-                            Layout.fillWidth: true
+                            text: view.flashFileName.length > 0
+                                  ? "Selected firmware:  " + view.flashFileName +
+                                    (view.downloadedVersion.length > 0 ? "  (" + view.downloadedVersion + ")" : "")
+                                  : "No firmware chosen yet."
+                            color: view.flashFileName.length > 0 ? Material.accent : Material.hintTextColor
+                            font.pixelSize: 14
+                            font.bold: view.flashFileName.length > 0
                             elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            visible: view.md5Status === "verified"
+                            text: "MD5 verified"
+                            font.pixelSize: 13; font.bold: true; color: "#4CAF50"
+                        }
+                        Label {
+                            visible: view.md5Status === "mismatch"
+                            text: "MD5 MISMATCH"
+                            font.pixelSize: 13; font.bold: true; color: "#F44336"
+                        }
+                        Label {
+                            visible: view.md5Status === "error"
+                            text: "MD5 error"
+                            font.pixelSize: 13; font.bold: true; color: "#FF9800"
+                        }
+                        Label {
+                            text: "<a href='notes'>Release Notes</a>"
+                            textFormat: Text.RichText
+                            font.pixelSize: 16
+                            linkColor: "#8FCBFF"; font.bold: true
+                            visible: view.releaseInfo !== null
+                            onLinkActivated: releaseNotesDialog.open()
+                            MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
                         }
                     }
 
+                    // MD5 mismatch detail
+                    Label {
+                        visible: view.md5Status === "mismatch"
+                        text: "Expected: " + view.md5Expected
+                        font.family: "Courier New"; font.pixelSize: 11; color: "#F44336"
+                        wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                    }
+                    Label {
+                        visible: view.md5Status === "mismatch"
+                        text: "Computed: " + view.md5Computed
+                        font.family: "Courier New"; font.pixelSize: 11; color: "#F44336"
+                        wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                    }
+
+                    // Step 2 — flash it
+                    Label { text: "2.  Flash to the ESP32"; font.bold: true; font.pixelSize: 15; Layout.topMargin: 4 }
+
                     RowLayout {
+                        Layout.fillWidth: true
                         spacing: 12
 
                         Button {
                             text: "Flash ESP32"
                             highlighted: true
                             enabled: m1device.connected && !view.updating
-                                     && view.selectedFilePath.length > 0
-                            onClicked: {
-                                view.flashFilePath = view.selectedFilePath
-                                view.flashFileName = view.selectedFileName
-                                confirmDialog.open()
-                            }
+                                     && view.flashFilePath.length > 0
+                                     && view.md5Status !== "mismatch"
+                            onClicked: confirmDialog.open()
                         }
 
                         Label {
                             text: "Target: 0x" + view.flashAddr.toString(16).toUpperCase().padStart(5, "0")
-                                  + (factoryRadio.checked ? " (Factory)" : " (App-Only)")
+                                  + (factoryRadio.checked ? "  (Factory)" : "  (App-only)")
                             font.family: "Courier New"
-                            font.pixelSize: 12
+                            font.pixelSize: 13
                             color: Material.hintTextColor
+                            Layout.fillWidth: true
                         }
+                    }
+
+                    Label {
+                        visible: view.flashFilePath.length > 0 && !m1device.connected
+                        text: "Connect your M1 to enable flashing."
+                        font.pixelSize: 12
+                        color: "#E0A030"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
                 }
             }
 
-            // Progress (shared — only one flash at a time)
-            Pane {
+            // ── Flash progress (phase + percentage) ──
+            ColumnLayout {
                 visible: view.updating
                 Layout.fillWidth: true
                 Layout.leftMargin: 24
                 Layout.rightMargin: 24
-                Material.elevation: 1
+                spacing: 4
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 8
-
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
                     Label {
-                        text: "Flashing: " + view.flashFileName
-                        font.bold: true
-                    }
-
-                    ProgressBar {
+                        text: (view.espPhase.length > 0 ? view.espPhase : "Flashing " + view.flashFileName)
+                        font.pixelSize: 14
+                        wrapMode: Text.WordWrap
                         Layout.fillWidth: true
-                        value: view.updatePercent / 100.0
                     }
-
                     Label {
-                        text: view.espPhase.length > 0
-                              ? view.espPhase + "  " + view.updatePercent + "%"
-                              : "Flashing... " + view.updatePercent + "%"
+                        text: view.updatePercent > 0 ? view.updatePercent + "%" : ""
+                        font.pixelSize: 14; font.bold: true; color: Material.accent
                     }
+                }
+
+                ProgressBar {
+                    Layout.fillWidth: true
+                    from: 0
+                    to: 100
+                    value: view.updatePercent
+                    indeterminate: view.updatePercent <= 0
                 }
             }
 
-            // Status
+            // ── Result / status (when not flashing) ──
             Label {
                 id: espStatusLabel
                 visible: false
@@ -716,9 +1014,10 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: 24
                 Layout.rightMargin: 24
+                font.pixelSize: 13
             }
 
-            Item { height: 24 }
+            Item { Layout.preferredHeight: 24 }
         }
     }
 
@@ -734,8 +1033,14 @@ Item {
             uiSettings.setDialogFolder("espOpen", currentFolder)
             var path = selectedFile.toString().replace(root.filePathFilter, "")
             view.selectedFilePath = path
-            var parts = path.split(/[/\\]/)
-            view.selectedFileName = parts[parts.length - 1]
+            view.selectedFileName = view.basename(path)
+            // A browsed file becomes the flash target; it has no matching .md5
+            view.flashFilePath = path
+            view.flashFileName = view.selectedFileName
+            view.downloadedFilePath = ""
+            view.downloadedFileName = ""
+            view.downloadedVersion = ""
+            view.md5Status = ""
             espStatusLabel.visible = false
             view.checkSizeWarning()
         }
@@ -751,31 +1056,29 @@ Item {
         ColumnLayout {
             spacing: 12
 
-            Label {
-                text: "Flash firmware directly to ESP32?"
-                font.bold: true
-            }
+            Label { text: "Flash firmware directly to the ESP32?"; font.bold: true; font.pixelSize: 14 }
             Label {
                 text: "File: " + view.flashFileName +
-                      (view.downloadedVersion.length > 0
-                       ? "  (" + view.downloadedVersion + ")" : "")
+                      (view.downloadedVersion.length > 0 ? "  (" + view.downloadedVersion + ")" : "")
+                font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.preferredWidth: 440
             }
             Label {
                 text: "Flash address: 0x" + view.flashAddr.toString(16).toUpperCase().padStart(5, "0")
-                      + (factoryRadio.checked ? " (Factory Image)" : " (App-Only)")
+                      + (factoryRadio.checked ? "  (Factory image)" : "  (App-only)")
+                font.pixelSize: 13
             }
             Label {
                 visible: view.md5Status === "verified"
-                text: "MD5: Verified"
-                color: "#4CAF50"
+                text: "MD5: verified"
+                color: "#4CAF50"; font.pixelSize: 13
             }
             Label {
-                text: "This will connect to the ESP32 ROM bootloader, erase the\n" +
-                      "target region, and write the firmware directly. The ESP32\n" +
-                      "will be reset automatically when flashing completes."
+                text: "This connects to the ESP32 ROM bootloader, erases the target region, and writes " +
+                      "the firmware directly. The ESP32 resets automatically when flashing completes."
                 wrapMode: Text.WordWrap
-                font.pixelSize: 12
+                font.pixelSize: 13
                 color: Material.hintTextColor
+                Layout.preferredWidth: 440
             }
         }
 

@@ -15,10 +15,24 @@
  */
 class UiSettings : public QObject {
     Q_OBJECT
+    /* App theme: "dark" (default) or "light". Persisted across runs. */
+    Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
+    /* M1 device-skin case color: white/black/clear/orange/green. Persisted. */
+    Q_PROPERTY(QString caseColor READ caseColor WRITE setCaseColor NOTIFY caseColorChanged)
 public:
     explicit UiSettings(QObject *parent = nullptr) : QObject(parent) {}
 
     /* Last folder used by the dialog identified by `key` (empty url if none). */
     Q_INVOKABLE QUrl dialogFolder(const QString &key) const;
     Q_INVOKABLE void setDialogFolder(const QString &key, const QUrl &folder);
+
+    QString theme() const;
+    void setTheme(const QString &t);
+
+    QString caseColor() const;
+    void setCaseColor(const QString &c);
+
+signals:
+    void themeChanged();
+    void caseColorChanged();
 };
