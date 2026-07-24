@@ -173,6 +173,24 @@ QString ToolPaths::findCubeProgrammerCli()
 {
     QString binName = "STM32_Programmer_CLI" + EXE_SUFFIX;
 
+    // 0. App-local bundle — mirrors the Windows stm32prog/ folder so a macOS
+    //    .dmg / Linux AppImage can ship its own copy of the CLI.
+    {
+        const QString appDir = QCoreApplication::applicationDirPath();
+        QStringList localCandidates;
+        localCandidates << QDir(appDir).filePath("stm32prog/bin/" + binName);
+        localCandidates << QDir(appDir).filePath("stm32prog/" + binName);
+#ifdef __APPLE__
+        // Inside a .app the exe is in Contents/MacOS; the bundle lives under
+        // Contents/Resources.
+        localCandidates << QDir(appDir).filePath("../Resources/stm32prog/bin/" + binName);
+        localCandidates << QDir(appDir).filePath("../Resources/stm32prog/" + binName);
+#endif
+        for (const QString &c : localCandidates)
+            if (QFile::exists(c))
+                return QFileInfo(c).absoluteFilePath();
+    }
+
     // 1. Standalone STM32CubeProgrammer install
     QStringList standalonePaths;
 #ifdef _WIN32
