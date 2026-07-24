@@ -179,9 +179,23 @@ QString ToolPaths::findCubeProgrammerCli()
     standalonePaths << "C:/Program Files/STMicroelectronics/STM32Cube/"
                        "STM32CubeProgrammer/bin/" + binName;
 #elif defined(__APPLE__)
-    standalonePaths << "/Applications/STMicroelectronics/STM32Cube/"
-                       "STM32CubeProgrammer/STM32CubeProgrammer.app/"
-                       "Contents/MacOs/bin/" + binName;
+    // Default macOS install (STM32CubeProgrammer 2.19+): the CLI lives under
+    // the .app's Contents/Resources/bin. Cover /Applications and ~/Applications,
+    // plus the api/lib copy and older/symlinked layouts.
+    {
+        const QStringList appRoots = {
+            "/Applications",
+            QDir::homePath() + "/Applications"
+        };
+        for (const QString &root : appRoots) {
+            const QString appBase = root +
+                "/STMicroelectronics/STM32Cube/STM32CubeProgrammer/"
+                "STM32CubeProgrammer.app/Contents";
+            standalonePaths << appBase + "/Resources/bin/" + binName;
+            standalonePaths << appBase + "/Resources/api/lib/" + binName;
+            standalonePaths << appBase + "/MacOs/bin/" + binName;   // legacy layout
+        }
+    }
     standalonePaths << "/Applications/STM32CubeProgrammer/bin/" + binName;
 #else
     standalonePaths << "/opt/st/STM32CubeProgrammer/bin/" + binName;

@@ -11,7 +11,9 @@ Desktop companion app for the [Monstatek M1](https://monstatek.com) multi-tool d
 3. Run `qmonstatek.exe`
 4. Connect your M1 via USB-C — it will auto-detect on the COM port
 
-No installation required. All dependencies are included in the zip.
+No installation required. On **Windows**, everything is included in the zip — the DFU Flash tool (`stm32prog/`, built on ST's CubeProgrammer API) and firmware updates work out of the box.
+
+On **macOS/Linux**, the app itself needs no install, but the **DFU Flash** feature relies on STM32CubeProgrammer, which is not bundled — install it separately (see the platform notes below). All other features work without it.
 
 **Linux users (Arch based distorbutions) that experience issues with the AppImage, build from source with the directions below.**
 
