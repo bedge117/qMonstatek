@@ -15,7 +15,19 @@ Item {
     width: 760
     height: 320
 
-    function press(id) { if (m1device.connected) m1device.buttonClick(id) }
+    // Every button press emits this; when sendToDevice is true it ALSO forwards
+    // to the physical M1 (Screen Mirror). Device Info sets sendToDevice:false and
+    // uses buttonPressed() to drive the app's sidebar instead.
+    signal buttonPressed(int id)
+    property bool sendToDevice: true
+    function press(id) {
+        buttonPressed(id)
+        if (sendToDevice && m1device.connected) m1device.buttonClick(id)
+    }
+
+    // When true, the screen shows a static device-status readout (firmware,
+    // bank, SD + a phone-style battery corner) instead of the live mirror.
+    property bool infoMode: false
 
     // ── Case colour (white/black/clear/orange/green) ──
     property string caseTheme: "white"
@@ -83,9 +95,92 @@ Item {
         border.color: "#000000"; border.width: 2
 
         MonoDisplay {
+            visible: !skin.infoMode
             anchors.centerIn: parent
             width: 364
             height: 182
+        }
+
+        // ── Static status readout (info mode) — the M1 "showing" its own
+        //    status on-screen with a green LCD aesthetic ──
+        Item {
+            visible: skin.infoMode
+            anchors.centerIn: parent
+            width: 364
+            height: 182
+            readonly property color lcd: "#5BE585"
+
+            // top-left tag
+            Label {
+                anchors.top: parent.top; anchors.left: parent.left; anchors.margins: 8
+                text: "M1"
+                color: "#5BE585"; opacity: 0.75
+                font.pixelSize: 12; font.family: "Courier New"; font.bold: true
+            }
+
+            // phone-style battery corner (top-right)
+            Row {
+                anchors.top: parent.top; anchors.right: parent.right
+                anchors.topMargin: 7; anchors.rightMargin: 6
+                spacing: 4
+                Label {
+                    text: "⚡"; font.pixelSize: 12; color: "#5BE585"
+                    visible: m1device.batteryCharging || m1device.chargeState > 0
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Item {
+                    width: 25; height: 13; anchors.verticalCenter: parent.verticalCenter
+                    Rectangle {
+                        id: battBody
+                        width: 22; height: 13; radius: 2
+                        color: "transparent"; border.color: "#5BE585"; border.width: 1.5
+                        Rectangle {
+                            anchors.left: parent.left; anchors.leftMargin: 2
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.max(1, (parent.width - 4) * m1device.batteryLevel / 100.0)
+                            height: parent.height - 4; radius: 1
+                            color: m1device.batteryLevel > 20 ? "#5BE585" : "#FF6B6B"
+                        }
+                    }
+                    Rectangle {   // nub
+                        anchors.left: battBody.right; anchors.verticalCenter: parent.verticalCenter
+                        width: 2.5; height: 6; radius: 1; color: "#5BE585"
+                    }
+                }
+                Label {
+                    text: m1device.batteryLevel + "%"; color: "#5BE585"
+                    font.pixelSize: 13; font.family: "Courier New"
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            // centre status — sized to fill the screen
+            Column {
+                anchors.centerIn: parent
+                width: parent.width - 24
+                spacing: 12
+                Label {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    text: m1device.hasDeviceInfo ? m1device.firmwareVersion : "—"
+                    color: "#5BE585"
+                    font.pixelSize: 27; font.bold: true; font.family: "Courier New"
+                    fontSizeMode: Text.HorizontalFit
+                    minimumPixelSize: 14
+                }
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: m1device.hasDeviceInfo ? "Boot Bank " + m1device.activeBank : ""
+                    color: "#5BE585"; opacity: 0.9
+                    font.pixelSize: 18; font.family: "Courier New"
+                }
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: m1device.sdCardPresent ? "SD  " + m1device.sdCapacity : "No SD card"
+                    color: "#5BE585"; opacity: 0.9
+                    font.pixelSize: 18; font.family: "Courier New"
+                }
+            }
         }
     }
 

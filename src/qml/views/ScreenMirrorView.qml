@@ -83,38 +83,6 @@ Item {
             }
         }
 
-        // ── Case colour picker ──
-        RowLayout {
-            Layout.alignment: Qt.AlignHCenter
-            spacing: 10
-
-            Label { text: "Case color:"; font.pixelSize: 12; color: Material.hintTextColor }
-
-            Repeater {
-                model: [
-                    { key: "white",  col: "#FCFCFD", label: "White" },
-                    { key: "black",  col: "#202124", label: "Black" },
-                    { key: "clear",  col: "#80CBD2DC", label: "Clear" },
-                    { key: "orange", col: "#F57C00", label: "Orange" },
-                    { key: "green",  col: "#43A047", label: "Green" }
-                ]
-                delegate: Rectangle {
-                    width: 26; height: 26; radius: 13
-                    color: modelData.col
-                    border.color: uiSettings.caseColor === modelData.key ? Material.accent : "#88808080"
-                    border.width: uiSettings.caseColor === modelData.key ? 3 : 1
-                    ToolTip.visible: swHover.hovered
-                    ToolTip.delay: 300
-                    ToolTip.text: modelData.label
-                    HoverHandler { id: swHover }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: uiSettings.caseColor = modelData.key
-                    }
-                }
-            }
-        }
 
         // Keyboard hint
         Label {

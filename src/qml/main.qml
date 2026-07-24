@@ -54,6 +54,25 @@ ApplicationWindow {
         }
     }
 
+    // Screen order in the StackLayout (indices 0-11); used for M1 Back navigation.
+    readonly property var viewNames: ["deviceInfo", "screenMirror", "fileManager",
+                                      "firmwareUpdate", "dualBoot", "esp32Update",
+                                      "dfuFlash", "swdRecovery", "debugTerminal",
+                                      "settings", "power", "about"]
+    property string prevViewName: "deviceInfo"
+
+    // M1 Back button (from Device Info): return to the previous screen, never a
+    // recovery screen.
+    function goBack() {
+        var name = root.prevViewName
+        if (name === "dfuFlash" || name === "swdRecovery" || !name)
+            name = "deviceInfo"
+        contentStack.currentIndex = viewIndex(name)
+        sidebar.selectByName(name)
+        sidebar.highlightIndex = -1
+        refreshView(name)
+    }
+
     // ── Main Layout: Sidebar + Content ──
     RowLayout {
         anchors.fill: parent
@@ -64,6 +83,12 @@ ApplicationWindow {
             id: sidebar
             Layout.fillHeight: true
             onNavigated: function(viewName) {
+                // Remember the screen we're leaving so the M1 Back button can
+                // return to it — but never record the recovery screens.
+                var oldIdx = contentStack.currentIndex
+                var oldName = (oldIdx >= 0 && oldIdx < root.viewNames.length) ? root.viewNames[oldIdx] : ""
+                if (oldName && oldName !== viewName && oldName !== "dfuFlash" && oldName !== "swdRecovery")
+                    root.prevViewName = oldName
                 // Stop screen stream when leaving Screen Mirror view
                 if (contentStack.currentIndex === 1 && viewIndex(viewName) !== 1) {
                     if (m1device.screenStreaming)
@@ -87,7 +112,13 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            DeviceInfoView     { id: deviceInfoView }      // 0
+            DeviceInfoView {                               // 0
+                id: deviceInfoView
+                onNavUp:     sidebar.moveHighlight(-1)
+                onNavDown:   sidebar.moveHighlight(1)
+                onNavSelect: sidebar.activateHighlight()
+                onNavBack:   root.goBack()
+            }
             ScreenMirrorView   { id: screenMirrorView }    // 1
             FileManagerView    { id: fileManagerView }     // 2
             FirmwareUpdateView { id: fwUpdateView }        // 3

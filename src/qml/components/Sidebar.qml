@@ -19,6 +19,38 @@ Rectangle {
     signal navigated(string viewName)
 
     property int selectedIndex: -1
+    property int highlightIndex: -1   // TV-remote cursor (M1 D-pad); -1 = none
+
+    function firstVisible() {
+        for (var i = 0; i < menuItems.length; i++)
+            if (isItemVisible(menuItems[i])) return i
+        return -1
+    }
+    function nextVisible(from, dir) {
+        var i = from + dir
+        while (i >= 0 && i < menuItems.length) {
+            if (isItemVisible(menuItems[i])) return i
+            i += dir
+        }
+        return from   // clamp at the ends
+    }
+    function moveHighlight(delta) {
+        var cur = highlightIndex >= 0 ? highlightIndex
+                : (selectedIndex >= 0 ? selectedIndex : firstVisible())
+        if (cur < 0) return
+        highlightIndex = nextVisible(cur, delta > 0 ? 1 : -1)
+    }
+    function activateHighlight() {
+        if (highlightIndex < 0 || !isItemVisible(menuItems[highlightIndex])) return
+        selectedIndex = highlightIndex
+        var name = menuItems[highlightIndex].name
+        highlightIndex = -1
+        navigated(name)
+    }
+    function selectByName(name) {
+        for (var i = 0; i < menuItems.length; i++)
+            if (menuItems[i].name === name) { selectedIndex = i; return }
+    }
     readonly property bool showCompatibleItems: m1device.connected && m1device.hasDeviceInfo
     // The minimal Recovery FW reports v0.8.0.0-C3.1 — a stripped image whose only
     // job is to re-flash. Treat it as "not a working FW" so the recovery tools stay
@@ -140,11 +172,16 @@ Rectangle {
                     Layout.preferredHeight: 40
                     radius: 9
                     readonly property bool selected: sidebar.selectedIndex === index
-                    color: selected
-                           ? Qt.rgba(Material.accent.r, Material.accent.g, Material.accent.b, 0.16)
-                           : navMa.containsMouse
-                             ? (sidebar.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.06))
-                             : "transparent"
+                    readonly property bool highlighted: sidebar.highlightIndex === index
+                    color: highlighted
+                           ? Qt.rgba(Material.accent.r, Material.accent.g, Material.accent.b, 0.30)
+                           : selected
+                             ? Qt.rgba(Material.accent.r, Material.accent.g, Material.accent.b, 0.16)
+                             : navMa.containsMouse
+                               ? (sidebar.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.06))
+                               : "transparent"
+                    border.color: highlighted ? Material.accent : "transparent"
+                    border.width: highlighted ? 2 : 0
                     Behavior on color { ColorAnimation { duration: 120 } }
 
                     // left accent bar when selected
@@ -179,6 +216,14 @@ Rectangle {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
+                        // "you are here" marker on the current screen
+                        Label {
+                            text: "▸"
+                            font.pixelSize: 14
+                            font.bold: true
+                            color: Material.accent
+                            visible: navItem.selected
+                        }
                     }
 
                     MouseArea {
@@ -187,6 +232,7 @@ Rectangle {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            sidebar.highlightIndex = -1
                             sidebar.selectedIndex = index
                             sidebar.navigated(modelData.name)
                         }
