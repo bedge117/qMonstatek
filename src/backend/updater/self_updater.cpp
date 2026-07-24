@@ -14,10 +14,12 @@
 #include <QUrl>
 #include <QDebug>
 
-// Firmware bundled in the app (see src/CMakeLists.txt app_resources). Keep this
-// in sync with the file added there; enables fully-offline device recovery.
-static const char *kBundledFwName     = "M1_v0800_C3.126_wCRC.bin";
-static const char *kBundledFwResource = ":/firmware/M1_v0800_C3.126_wCRC.bin";
+// Minimal Recovery firmware bundled in the app (see src/CMakeLists.txt
+// app_resources). Its only job is to un-brick the M1 over SWD and get it
+// talking to qMonstatek again, so a real firmware can then be installed —
+// this enables that first step with no internet. Keep in sync with the file.
+static const char *kBundledFwName     = "M1_Recovery_C3.1.0_wCRC.bin";
+static const char *kBundledFwResource = ":/firmware/M1_Recovery_C3.1.0_wCRC.bin";
 
 SelfUpdater::SelfUpdater(QObject *parent)
     : QObject(parent)
