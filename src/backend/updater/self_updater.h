@@ -20,6 +20,12 @@ public:
 
     Q_INVOKABLE QString tempDir() const;
 
+    /* Firmware bundled inside the app for fully-offline recovery.
+     * bundledFirmwarePath() extracts it to a temp file (once) and returns the
+     * local path, or "" if this build has no bundled image. */
+    Q_INVOKABLE QString bundledFirmwareName() const;
+    Q_INVOKABLE QString bundledFirmwarePath();
+
     /**
      * Launch installer from a downloaded file.
      * If the file is a .zip, extracts the .exe first.

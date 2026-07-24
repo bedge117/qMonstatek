@@ -46,6 +46,7 @@ qt_add_resources(qmonstatek "app_resources"
         resources/images/enter_dfu.png
         resources/images/reboot_device.png
         resources/images/swd_recovery.png
+        resources/firmware/M1_v0800_C3.126_wCRC.bin
 )
 
 target_link_libraries(qmonstatek PRIVATE

@@ -8,10 +8,16 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcess>
 #include <QUrl>
 #include <QDebug>
+
+// Firmware bundled in the app (see src/CMakeLists.txt app_resources). Keep this
+// in sync with the file added there; enables fully-offline device recovery.
+static const char *kBundledFwName     = "M1_v0800_C3.126_wCRC.bin";
+static const char *kBundledFwResource = ":/firmware/M1_v0800_C3.126_wCRC.bin";
 
 SelfUpdater::SelfUpdater(QObject *parent)
     : QObject(parent)
@@ -22,6 +28,38 @@ SelfUpdater::SelfUpdater(QObject *parent)
 QString SelfUpdater::tempDir() const
 {
     return QDir::tempPath();
+}
+
+QString SelfUpdater::bundledFirmwareName() const
+{
+    return QFile::exists(QString::fromLatin1(kBundledFwResource))
+               ? QString::fromLatin1(kBundledFwName)
+               : QString();
+}
+
+QString SelfUpdater::bundledFirmwarePath()
+{
+    QFile res(QString::fromLatin1(kBundledFwResource));
+    if (!res.open(QIODevice::ReadOnly)) {
+        emit updateError("This build has no bundled recovery firmware.");
+        return QString();
+    }
+    const QByteArray data = res.readAll();
+    res.close();
+
+    const QString dest = QDir(QDir::tempPath()).filePath(QString::fromLatin1(kBundledFwName));
+    QFileInfo fi(dest);
+    if (fi.exists() && fi.size() == data.size())
+        return dest;                 // already extracted this run
+
+    QFile out(dest);
+    if (!out.open(QIODevice::WriteOnly)) {
+        emit updateError("Cannot write bundled firmware to the temp folder.");
+        return QString();
+    }
+    out.write(data);
+    out.close();
+    return dest;
 }
 
 void SelfUpdater::cleanupOldDownloads()

@@ -877,6 +877,32 @@ Item {
                         }
                     }
 
+                    // Bundled firmware — works with no internet at all
+                    RowLayout {
+                        spacing: 12
+                        visible: selfUpdater.bundledFirmwareName().length > 0
+                        Button {
+                            text: "Use bundled recovery firmware"
+                            enabled: !dfuFlasher.flashing
+                            Material.foreground: "#4CAF50"
+                            onClicked: {
+                                var p = selfUpdater.bundledFirmwarePath()
+                                if (p.length > 0) {
+                                    view.selectedFilePath = p
+                                    view.selectedFileName = selfUpdater.bundledFirmwareName()
+                                }
+                            }
+                        }
+                        Label {
+                            text: "Fully offline — a known-good firmware ships inside qMonstatek. " +
+                                  "Best for recovering a device with no internet."
+                            font.pixelSize: 13
+                            color: Material.hintTextColor
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
                     Label {
                         id: ghStatusLabel
                         visible: false
