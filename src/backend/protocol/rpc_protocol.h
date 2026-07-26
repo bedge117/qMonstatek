@@ -148,6 +148,9 @@ struct DeviceInfoPayload {
     uint8_t  batt_health;        // BQ27421 state-of-health 0-100%
     uint8_t  charge_state;       // BQ25896 stat: 0=off, 1=pre, 2=fast, 3=done
     uint8_t  charge_fault;       // BQ25896 fault code
+
+    // Firmware variant (appended): 0 = normal, 1 = Recovery, 2 = Restore Host
+    uint8_t  fw_variant;
 };
 #pragma pack(pop)
 

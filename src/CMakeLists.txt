@@ -28,6 +28,7 @@ qt_add_qml_module(qmonstatek
         qml/views/FirmwareUpdateView.qml
         qml/views/Esp32UpdateView.qml
         qml/views/DualBootView.qml
+        qml/views/FactoryRestoreView.qml
         qml/views/DebugTerminalView.qml
         qml/views/PowerView.qml
         qml/views/SettingsView.qml
@@ -47,6 +48,16 @@ qt_add_resources(qmonstatek "app_resources"
         resources/images/reboot_device.png
         resources/images/swd_recovery.png
         resources/firmware/M1_Recovery_C3.1.0_wCRC.bin
+        resources/firmware/stock/M1_RestoreHost_C3.1.0_wCRC.bin
+        resources/firmware/stock/m1_v0800_wCRC.bin
+        resources/firmware/stock/m1_v0802_wCRC.bin
+        resources/firmware/stock/m1_v0804_wCRC.bin
+        resources/firmware/stock/esp_network_adapter.bin
+        resources/firmware/stock/esp_network_adapter.md5
+        resources/firmware/stock/esp_stealthhybrid.bin
+        resources/firmware/stock/esp_stealthhybrid.md5
+        resources/firmware/stock/esp_at_spi.bin
+        resources/firmware/stock/esp_at_spi.md5
 )
 
 target_link_libraries(qmonstatek PRIVATE

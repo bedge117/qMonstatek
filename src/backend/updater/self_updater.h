@@ -26,6 +26,10 @@ public:
     Q_INVOKABLE QString bundledFirmwareName() const;
     Q_INVOKABLE QString bundledFirmwarePath();
 
+    // Extract a bundled Factory-Restore asset (:/firmware/stock/<name>) to temp;
+    // returns the temp path (or empty on failure, with updateError emitted).
+    Q_INVOKABLE QString extractStockAsset(const QString &name);
+
     /**
      * Launch installer from a downloaded file.
      * If the file is a .zip, extracts the .exe first.

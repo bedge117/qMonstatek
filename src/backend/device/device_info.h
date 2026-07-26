@@ -45,6 +45,9 @@ struct DeviceInfo {
     bool     southpawMode = false;
     uint8_t  c3Revision = 0;
 
+    // Firmware variant: 0 = normal working FW, 1 = Recovery, 2 = Restore Host
+    uint8_t  fwVariant = 0;
+
     // True if we received valid device info via RPC
     bool hasDeviceInfo() const {
         return fwMajor != 0 || fwMinor != 0 || fwBuild != 0 || fwRC != 0;

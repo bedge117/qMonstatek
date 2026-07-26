@@ -19,6 +19,8 @@ class UiSettings : public QObject {
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
     /* M1 device-skin case color: white/black/clear/orange/green. Persisted. */
     Q_PROPERTY(QString caseColor READ caseColor WRITE setCaseColor NOTIFY caseColorChanged)
+    /* App accent style: green (default) / magenta / indigo / amber / cyan. Persisted. */
+    Q_PROPERTY(QString accent READ accent WRITE setAccent NOTIFY accentChanged)
 public:
     explicit UiSettings(QObject *parent = nullptr) : QObject(parent) {}
 
@@ -32,7 +34,11 @@ public:
     QString caseColor() const;
     void setCaseColor(const QString &c);
 
+    QString accent() const;
+    void setAccent(const QString &a);
+
 signals:
     void themeChanged();
     void caseColorChanged();
+    void accentChanged();
 };

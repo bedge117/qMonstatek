@@ -47,3 +47,18 @@ void UiSettings::setCaseColor(const QString &c)
     s.setValue(QStringLiteral("appearance/caseColor"), c);
     emit caseColorChanged();
 }
+
+QString UiSettings::accent() const
+{
+    QSettings s;
+    return s.value(QStringLiteral("appearance/accent"), QStringLiteral("green")).toString();
+}
+
+void UiSettings::setAccent(const QString &a)
+{
+    if (a == accent())
+        return;
+    QSettings s;
+    s.setValue(QStringLiteral("appearance/accent"), a);
+    emit accentChanged();
+}

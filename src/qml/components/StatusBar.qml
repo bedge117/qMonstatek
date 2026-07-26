@@ -5,7 +5,16 @@ import QtQuick.Layouts
 
 ToolBar {
     id: bar
-    Material.elevation: 2
+    Material.elevation: 0   // flat/integrated (modern) — the primary color still separates it
+
+    // Hairline bottom divider so the flat bar reads cleanly against content
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 1
+        color: Qt.rgba(0, 0, 0, 0.25)
+    }
 
     // Driven by main.qml's periodic qMonstatek update check
     property bool updateAvailable: false
@@ -40,9 +49,7 @@ ToolBar {
             implicitWidth: legacyRow.implicitWidth + 14
             implicitHeight: 22
             radius: 11
-            color: "#33FF9800"
-            border.color: "#FF9800"
-            border.width: 1
+            color: "#44FF9800"   // soft fill, no hard border (modern chip)
 
             RowLayout {
                 id: legacyRow
@@ -92,9 +99,7 @@ ToolBar {
             implicitWidth: updateRow.implicitWidth + 16
             implicitHeight: 22
             radius: 11
-            color: "#334CAF50"
-            border.color: "#4CAF50"
-            border.width: 1
+            color: "#444CAF50"   // soft fill, no hard border (modern chip)
 
             RowLayout {
                 id: updateRow

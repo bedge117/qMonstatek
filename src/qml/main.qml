@@ -39,8 +39,20 @@ ApplicationWindow {
     Timer { interval: 8000;             running: true; repeat: false; onTriggered: root.checkAppUpdate() }
     Timer { interval: 6 * 60 * 60 * 1000; running: true; repeat: true;  onTriggered: root.checkAppUpdate() }
 
+    // Accent is user-selectable in Settings and persisted. Default is a refined
+    // emerald green (calmer than Material.Green's neon). The device-skin LCD keeps
+    // its own green look regardless of this.
+    readonly property color accentColor: {
+        switch (uiSettings.accent) {
+        case "magenta": return "#E24C82"   // Monstatek-brand pink/magenta
+        case "indigo":  return "#7C6CF0"   // modern indigo-violet
+        case "amber":   return "#F0A83A"   // warm amber
+        case "cyan":    return "#2CB8C6"   // teal-cyan
+        default:        return "#2FBF71"   // refined green (default)
+        }
+    }
     Material.theme: uiSettings.theme === "light" ? Material.Light : Material.Dark
-    Material.accent: Material.Green
+    Material.accent: root.accentColor
     Material.primary: Material.BlueGrey
 
     // ── Status Bar ──
@@ -58,8 +70,14 @@ ApplicationWindow {
     readonly property var viewNames: ["deviceInfo", "screenMirror", "fileManager",
                                       "firmwareUpdate", "dualBoot", "esp32Update",
                                       "dfuFlash", "swdRecovery", "debugTerminal",
-                                      "settings", "power", "about"]
+                                      "settings", "power", "about",
+                                      "welcome", "incompatible", "factoryRestore"]
     property string prevViewName: "deviceInfo"
+    // Auto-jump to Factory Restore should happen ONCE when the Restore Host first
+    // appears — not on every device-info refresh (which would trap the user on the
+    // Factory Restore screen and block ESP32 Update / M1 Update / etc.). Reset on
+    // disconnect so the next Restore-Host boot jumps again.
+    property bool restoreHostJumped: false
 
     // M1 Back button (from Device Info): return to the previous screen, never a
     // recovery screen.
@@ -171,12 +189,34 @@ ApplicationWindow {
                     }
                 }
             }
+
+            FactoryRestoreView {                           // 14
+                id: factoryRestoreView
+                onInstallCustomRequested: {
+                    contentStack.currentIndex = viewIndex("firmwareUpdate")
+                    sidebar.selectByName("firmwareUpdate")
+                }
+            }
         }
     }
 
     // ── Device selector dialog ──
     DeviceSelector {
         id: deviceSelector
+    }
+
+    // Auto-jump to Factory Restore when the device comes up on the Restore Host
+    // (fw_variant == 2) — Stage 1 flashed it and it just rebooted.
+    Connections {
+        target: m1device
+        function onDeviceInfoUpdated() {
+            if (m1device.isRestoreHost && !root.restoreHostJumped
+                    && contentStack.currentIndex !== viewIndex("factoryRestore")) {
+                contentStack.currentIndex = viewIndex("factoryRestore")
+                sidebar.selectByName("factoryRestore")
+                root.restoreHostJumped = true
+            }
+        }
     }
 
     // ── View index mapping ──
@@ -194,6 +234,7 @@ ApplicationWindow {
             case "settings":        return 9
             case "power":           return 10
             case "about":           return 11
+            case "factoryRestore":  return 14
             default:                return 0
         }
     }
@@ -203,7 +244,10 @@ ApplicationWindow {
     // app-side logs that exist regardless of connection, so it must stay open
     // when the M1 drops (the CLI controls inside gray out on their own).
     function viewRequiresCompatible(idx) {
-        return idx <= 5 || idx === 10
+        // 14 = Factory Restore: only valid on a compatible/recovery-host FW (both
+        // report device info). After a restore the device boots genuine stock,
+        // which qM can't read — so leave Factory Restore for the Incompatible view.
+        return idx <= 5 || idx === 10 || idx === 14
     }
 
     // ── Auto-navigate on connection state changes ──
@@ -222,6 +266,7 @@ ApplicationWindow {
             } else {
                 reconnectRefreshTimer.stop()
                 incompatibleCheckTimer.stop()
+                root.restoreHostJumped = false   // re-arm the one-shot Restore-Host jump
                 // Navigate away from device-dependent views
                 var idx = contentStack.currentIndex
                 if (viewRequiresCompatible(idx) || idx === 13) {
@@ -250,6 +295,15 @@ ApplicationWindow {
                     swdRecoveryView.closeAllPopups()
                     contentStack.currentIndex = 0
                     sidebar.selectedIndex = 0
+                }
+                // First-connect highlight sync: at launch the app already defaults to
+                // Device Info (index 0), so the block above no-ops (idx is already 0)
+                // and the sidebar selection is never set — the item stays unhighlighted
+                // until the user clicks something. Now that the compatible menu is
+                // available, point the highlight at whatever view we're actually on.
+                if (sidebar.selectedIndex < 0) {
+                    if (contentStack.currentIndex === 0)
+                        sidebar.selectByName("deviceInfo")
                 }
                 // Don't call refreshCurrentView() here — it triggers requestDeviceInfo()
                 // which creates an infinite loop: request → response → updated → request

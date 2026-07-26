@@ -12,6 +12,18 @@ Item {
     property bool updating: false
     property int updatePercent: 0
     property string espPhase: ""
+    property bool espStalled: false
+    property int espLastPct: -1
+
+    // Flag a stalled flash (progress not moving) so we can prompt a reboot+retry.
+    Timer {
+        interval: 8000; repeat: true; running: view.updating
+        onTriggered: {
+            if (view.updating && view.updatePercent === view.espLastPct && view.updatePercent < 100)
+                view.espStalled = true
+            view.espLastPct = view.updatePercent
+        }
+    }
 
     // GitHub download state
     property string downloadedFilePath: ""
@@ -20,8 +32,6 @@ Item {
     property bool downloading: false
     property int downloadPercent: 0
     property var releaseInfo: null
-    property bool restoring: false
-    property string restoreStatus: ""
 
     // MD5 verification state
     property string md5FilePath: ""
@@ -52,13 +62,19 @@ Item {
         function onEspInfoReceived(version) {
             espVersionLabel.text = version
         }
+        // Guard: the Factory Restore flow also drives startEspUpdate. view.updating
+        // is set only when THIS view starts a flash, so ignore signals otherwise
+        // (else this view's dialogs pop over the Factory Restore screen).
         function onEspUpdateProgress(percent) {
+            if (!view.updating) return
             view.updatePercent = percent
         }
         function onEspUpdateStatus(status) {
+            if (!view.updating) return
             view.espPhase = status
         }
         function onEspUpdateComplete() {
+            if (!view.updating) return
             view.updating = false
             view.espPhase = ""
             espStatusLabel.text = "Success — ESP32 firmware flashed."
@@ -67,6 +83,7 @@ Item {
             espDoneDialog.open()
         }
         function onEspUpdateError(message) {
+            if (!view.updating) return
             view.updating = false
             view.espPhase = ""
             espStatusLabel.text = "Flash failed: " + message + "  —  reboot the M1 and try again."
@@ -124,13 +141,20 @@ Item {
             if (view.releaseInfo)
                 view.downloadedVersion = view.releaseInfo.version || ""
 
-            // Auto-select flash offset based on filename
-            if (nameLower.indexOf("factory") >= 0) {
-                factoryRadio.checked = true
-                view.flashAddr = 0x00000
-            } else {
+            // Auto-select flash offset based on filename. Factory (full flash at
+            // 0x0) is the safe default; only pick app-only when the name clearly
+            // marks it as an app image (e.g. app_m1-esp32-brain.bin). Full factory
+            // images (bootloader + partitions + app) always flash at 0x0.
+            var isApp = nameLower.indexOf("app_") >= 0 ||
+                        nameLower.indexOf("app-") >= 0 ||
+                        nameLower.indexOf("-app") >= 0 ||
+                        nameLower.indexOf("app-only") >= 0
+            if (isApp && nameLower.indexOf("factory") < 0) {
                 appRadio.checked = true
                 view.flashAddr = 0x60000
+            } else {
+                factoryRadio.checked = true
+                view.flashAddr = 0x00000
             }
 
             // Auto-verify against stored .md5 if available
@@ -140,18 +164,9 @@ Item {
                 view.md5Status = ""
 
             view.checkSizeWarning()
-
-            if (view.restoring) {
-                view.restoring = false
-                view.restoreStatus = "Stock firmware downloaded. Ready to flash."
-            }
         }
         function onDownloadError(message) {
             view.downloading = false
-            if (view.restoring) {
-                view.restoring = false
-                view.restoreStatus = "Download failed: " + message
-            }
         }
     }
 
@@ -165,10 +180,10 @@ Item {
         if (size <= 0) { view.sizeWarning = ""; return }
 
         var kb = Math.round(size / 1024)
-        if (factoryRadio.checked && size < 4000 * 1024) {
-            view.sizeWarning = "This file is " + kb + " KB — too small for a factory image. " +
-                               "It may be an app-only image (flash at 0x60000)."
-        } else if (appRadio.checked && size >= 4000 * 1024) {
+        // Factory images vary widely (~1 MB trimmed to 4 MB padded), so size is
+        // NOT a reliable factory test — the backend validates structure instead.
+        // Only flag the one clear size tell: an app-only image that's too big.
+        if (appRadio.checked && size >= 4000 * 1024) {
             view.sizeWarning = "This file is " + kb + " KB — too large for app-only. " +
                                "It may be a factory image (flash at 0x00000)."
         } else {
@@ -194,71 +209,6 @@ Item {
             view.md5Expected = result.expected
             view.md5Status = result.match ? "verified" : "mismatch"
         }
-    }
-
-    function startRestore() {
-        view.restoring = true
-        view.restoreStatus = "Fetching v1.0.0 release..."
-        view.releaseInfo = null
-        view.downloadedFilePath = ""
-        view.downloadedFileName = ""
-
-        var xhr = new XMLHttpRequest()
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 200) {
-                    try {
-                        var json = JSON.parse(xhr.responseText)
-                        var assets = json.assets
-                        // Find the factory .bin asset (prefer "factory" in name)
-                        var factoryUrl = ""
-                        var factoryName = ""
-                        var fallbackUrl = ""
-                        var fallbackName = ""
-                        for (var i = 0; i < assets.length; i++) {
-                            var name = assets[i].name
-                            if (name.indexOf(".bin") >= 0) {
-                                if (name.toLowerCase().indexOf("factory") >= 0) {
-                                    factoryUrl = assets[i].browser_download_url
-                                    factoryName = name
-                                    break
-                                }
-                                if (fallbackUrl.length === 0) {
-                                    fallbackUrl = assets[i].browser_download_url
-                                    fallbackName = name
-                                }
-                            }
-                        }
-                        if (factoryUrl.length === 0) {
-                            factoryUrl = fallbackUrl
-                            factoryName = fallbackName
-                        }
-                        if (factoryUrl.length > 0) {
-                            view.restoreStatus = "Downloading " + factoryName + "..."
-                            view.downloading = true
-                            view.downloadPercent = 0
-                            esp32Checker.downloadAsset(factoryUrl, factoryName)
-                        } else {
-                            view.restoring = false
-                            view.restoreStatus = "No .bin asset found in v1.0.0 release"
-                        }
-                    } catch (e) {
-                        view.restoring = false
-                        view.restoreStatus = "Error parsing release info"
-                    }
-                } else if (xhr.status === 404) {
-                    view.restoring = false
-                    view.restoreStatus = "v1.0.0 release not found"
-                } else {
-                    view.restoring = false
-                    view.restoreStatus = "Error fetching release (HTTP " + xhr.status + ")"
-                }
-            }
-        }
-        xhr.open("GET", "https://api.github.com/repos/bedge117/esp32-at-monstatek-m1/releases/tags/v1.0.0")
-        xhr.setRequestHeader("User-Agent", "qMonstatek/1.0")
-        xhr.setRequestHeader("Accept", "application/vnd.github.v3+json")
-        xhr.send()
     }
 
     // ===================== Popups =====================
@@ -347,22 +297,22 @@ Item {
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Material.dividerColor }
 
-                Label { text: "The two builds"; font.bold: true; font.pixelSize: 14 }
+                Label { text: "The ESP32 firmware types"; font.bold: true; font.pixelSize: 14 }
                 Label {
-                    text: "SPI Brain (current) — what the C3 M1 firmware uses today; it runs the radio " +
-                          "features over the internal SPI link. Get it with \"Download latest\". This is " +
-                          "the one you almost always want."
+                    text: "SPI Brain — what C3 firmware uses. The ESP32 runs the radio features natively " +
+                          "and talks to the M1 over a custom binary link. Get it with \"Download latest " +
+                          "(SPI brain)\". This is the one you want for C3."
                     wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14
                 }
                 Label {
-                    text: "AT firmware (legacy) — the older ESP-AT build. \"Roll back to AT firmware\" " +
-                          "fetches and flashes it if you need to return to the legacy behaviour. Most " +
-                          "people never need this."
+                    text: "ESP-Hosted (genuine stock) — what the stock Monstatek M1 firmware uses; the " +
+                          "ESP32 acts as a network co-processor. To return a device to stock, use " +
+                          "Factory Restore, which flashes the matching stock ESP32 image — not this screen."
                     wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14; color: Material.hintTextColor
                 }
                 Label {
-                    text: "In short: match the ESP32 firmware to your M1 firmware, and when unsure, download " +
-                          "the latest SPI brain and flash it as a factory image. Download repos are set in Settings."
+                    text: "In short: match the ESP32 firmware to your M1 firmware. For C3, download the " +
+                          "latest SPI brain and flash it as a factory image. Download repos are set in Settings."
                     wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 14; font.bold: true; color: "#4CAF50"
                 }
             }
@@ -711,6 +661,45 @@ Item {
                 }
             }
 
+            // ── Firmware-mismatch guidance (detect & guide) ──
+            Pane {
+                visible: m1device.connected && m1device.hasDeviceInfo && !m1device.esp32Ready
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                Material.elevation: 2
+                Material.background: Material.theme === Material.Dark ? "#3A2E12" : "#FFF3E0"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 6
+
+                    RowLayout {
+                        spacing: 8
+                        Label { text: "⚠"; font.pixelSize: 18; color: "#FF9800" }
+                        Label {
+                            text: "The ESP32 isn't responding as expected"
+                            font.bold: true; font.pixelSize: 14; color: "#FF9800"
+                            Layout.fillWidth: true
+                        }
+                    }
+                    Label {
+                        text: "The ESP32 co-processor runs its own firmware, and the stock Monstatek and " +
+                              "C3 M1 builds each expect a different one. If you just switched M1 firmware " +
+                              "(e.g. via Dual Boot), the ESP32 is likely still running the other build's " +
+                              "firmware, so WiFi/BLE won't work until it matches."
+                        wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 13
+                    }
+                    Label {
+                        text: "Fix it: press Initialize / Refresh above (it auto-inits in a few seconds). " +
+                              "If it stays offline, flash the matching ESP32 firmware below — for C3, use " +
+                              "\"Download latest (SPI brain)\"."
+                        wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 13
+                        color: Material.hintTextColor
+                    }
+                }
+            }
+
             // ── Image type / flash address ──
             Pane {
                 Layout.fillWidth: true
@@ -762,6 +751,15 @@ Item {
                         color: "#FF9800"
                         Layout.fillWidth: true
                     }
+
+                    CheckBox {
+                        id: forceFlashCheck
+                        text: "Force flash — skip image-type checks"
+                        font.pixelSize: 13
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Bypass the factory/app-only validation and flash the file as-is. " +
+                                      "Only use this if you're sure the image and address are correct."
+                    }
                 }
             }
 
@@ -806,12 +804,6 @@ Item {
                         }
 
                         Button {
-                            text: view.restoring ? "Restoring…" : "Roll back to AT firmware"
-                            enabled: !view.restoring && !view.downloading && !view.updating
-                            onClicked: view.startRestore()
-                        }
-
-                        Button {
                             text: "Browse this PC…"
                             enabled: !view.updating
                             onClicked: {
@@ -823,8 +815,8 @@ Item {
                     }
 
                     Label {
-                        text: "Downloads come from " + esp32Checker.repoUrl + ". Roll back fetches the " +
-                              "legacy ESP-AT build. Change the repo in Settings."
+                        text: "SPI brain downloads come from " + esp32Checker.repoUrl + ". Or use " +
+                              "\"Browse this PC…\" to flash a local image. Change repos in Settings."
                         font.pixelSize: 13
                         color: Material.hintTextColor
                         wrapMode: Text.WordWrap
@@ -836,21 +828,6 @@ Item {
                         visible: false
                         font.pixelSize: 13
                         color: Material.hintTextColor
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-
-                    Label {
-                        visible: view.restoreStatus.length > 0
-                        text: view.restoreStatus
-                        font.pixelSize: 13
-                        color: {
-                            if (view.restoreStatus.indexOf("Ready") >= 0) return "#4CAF50"
-                            if (view.restoreStatus.indexOf("Error") >= 0 ||
-                                view.restoreStatus.indexOf("failed") >= 0 ||
-                                view.restoreStatus.indexOf("not found") >= 0) return "#F44336"
-                            return Material.hintTextColor
-                        }
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -1004,6 +981,24 @@ Item {
                     value: view.updatePercent
                     indeterminate: view.updatePercent <= 0
                 }
+
+                Label {
+                    visible: view.espStalled
+                    text: "Hmmm… this is taking longer than expected."
+                    font.pixelSize: 14; font.bold: true; color: "#FF9800"
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true
+                }
+                Button {
+                    visible: view.espStalled
+                    text: "Cancel Flash and try again"
+                    Material.foreground: "#FF9800"
+                    onClicked: {
+                        m1device.reboot()
+                        view.updating = false; view.espStalled = false
+                        espStatusLabel.text = "Cancelling and rebooting… it'll reconnect in a moment — then flash again."
+                        espStatusLabel.color = "#FF9800"; espStatusLabel.visible = true
+                    }
+                }
             }
 
             // ── Result / status (when not flashing) ──
@@ -1085,11 +1080,13 @@ Item {
         onAccepted: {
             view.updating = true
             view.updatePercent = 0
+            view.espStalled = false
+            view.espLastPct = -1
             view.espPhase = ""
             espStatusLabel.text = ""
             espStatusLabel.color = Material.foreground
             espStatusLabel.visible = false
-            m1device.startEspUpdate(view.flashFilePath, view.flashAddr)
+            m1device.startEspUpdate(view.flashFilePath, view.flashAddr, forceFlashCheck.checked)
         }
     }
 }

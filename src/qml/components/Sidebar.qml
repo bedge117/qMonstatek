@@ -70,6 +70,7 @@ Rectangle {
         { name: "firmwareUpdate", label: "M1 Update",    icon: "⬆", section: "Firmware", requires: "compatible" },
         { name: "esp32Update",    label: "ESP32 Update", icon: "📡", section: "",         requires: "compatible" },
         { name: "dualBoot",       label: "Dual Boot",    icon: "🔄", section: "",         requires: "compatible" },
+        { name: "factoryRestore", label: "Factory Restore", icon: "🏭", section: "",      requires: "compatible" },
         { name: "dfuFlash",      label: "DFU Flash",        icon: "⚡", section: "Recovery", requires: "recovery" },
         { name: "swdRecovery",  label: "SWD Flash",        icon: "🔧", section: "",         requires: "recovery" },
         { name: "debugTerminal", label: "Debug Terminal",    icon: ">",  section: "System",   requires: "none" },

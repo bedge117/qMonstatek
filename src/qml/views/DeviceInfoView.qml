@@ -85,15 +85,30 @@ ScrollView {
             }
         }
 
-        // ESP status text
-        Label {
+        // ESP status text (+ mismatch hint)
+        ColumnLayout {
             visible: m1device.connected
-            text: m1device.esp32Ready
-                  ? "ESP32 ready — " + m1device.esp32Version
-                  : "ESP32 coprocessor not initialized"
-            font.pixelSize: 12
-            color: m1device.esp32Ready ? "#4CAF50" : "#F44336"
             Layout.alignment: Qt.AlignHCenter
+            spacing: 2
+
+            Label {
+                text: m1device.esp32Ready
+                      ? "ESP32 ready — " + m1device.esp32Version
+                      : "ESP32 coprocessor offline"
+                font.pixelSize: 12
+                color: m1device.esp32Ready ? "#4CAF50" : "#F44336"
+                Layout.alignment: Qt.AlignHCenter
+            }
+            Label {
+                visible: m1device.hasDeviceInfo && !m1device.esp32Ready
+                text: "May be running firmware for a different M1 build — see ESP32 Update"
+                font.pixelSize: 11
+                color: Material.hintTextColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                Layout.maximumWidth: 360
+                Layout.alignment: Qt.AlignHCenter
+            }
         }
 
         // ── The M1, showing its own status on-screen (scales with the window) ──
@@ -126,7 +141,16 @@ ScrollView {
             visible: m1device.connected
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: Math.min(view.width - 48, 420)
-            Material.elevation: 2
+            Material.elevation: 0
+            padding: 16
+            background: Rectangle {
+                radius: 12
+                color: Material.theme === Material.Dark ? Qt.lighter(Material.backgroundColor, 1.35)
+                                                        : Qt.darker(Material.backgroundColor, 1.03)
+                border.width: 1
+                border.color: Material.theme === Material.Dark ? Qt.rgba(1, 1, 1, 0.08)
+                                                               : Qt.rgba(0, 0, 0, 0.10)
+            }
 
             RowLayout {
                 anchors.fill: parent
@@ -149,7 +173,16 @@ ScrollView {
             visible: m1device.connected && m1device.hasDeviceInfo
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: Math.min(view.width - 48, 420)
-            Material.elevation: 1
+            Material.elevation: 0
+            padding: 16
+            background: Rectangle {
+                radius: 12
+                color: Material.theme === Material.Dark ? Qt.lighter(Material.backgroundColor, 1.35)
+                                                        : Qt.darker(Material.backgroundColor, 1.03)
+                border.width: 1
+                border.color: Material.theme === Material.Dark ? Qt.rgba(1, 1, 1, 0.08)
+                                                               : Qt.rgba(0, 0, 0, 0.10)
+            }
 
             ColumnLayout {
                 anchors.fill: parent

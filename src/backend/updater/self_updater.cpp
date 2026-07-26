@@ -15,11 +15,12 @@
 #include <QDebug>
 
 // Minimal Recovery firmware bundled in the app (see src/CMakeLists.txt
-// app_resources). Its only job is to un-brick the M1 over SWD and get it
-// talking to qMonstatek again, so a real firmware can then be installed —
-// this enables that first step with no internet. Keep in sync with the file.
-static const char *kBundledFwName     = "M1_Recovery_C3.1.0_wCRC.bin";
-static const char *kBundledFwResource = ":/firmware/M1_Recovery_C3.1.0_wCRC.bin";
+// app_resources). It un-bricks the M1 over SWD/DFU and gets it talking to
+// qMonstatek again, so a real firmware — or a full Factory Restore — can then
+// run. This is the Restore Host image (a superset of the old minimal Recovery
+// FW: it also flashes the ESP + stock M1). Keep in sync with the bundled file.
+static const char *kBundledFwName     = "M1_RestoreHost_C3.1.0_wCRC.bin";
+static const char *kBundledFwResource = ":/firmware/stock/M1_RestoreHost_C3.1.0_wCRC.bin";
 
 SelfUpdater::SelfUpdater(QObject *parent)
     : QObject(parent)
@@ -50,13 +51,60 @@ QString SelfUpdater::bundledFirmwarePath()
     res.close();
 
     const QString dest = QDir(QDir::tempPath()).filePath(QString::fromLatin1(kBundledFwName));
-    QFileInfo fi(dest);
-    if (fi.exists() && fi.size() == data.size())
-        return dest;                 // already extracted this run
+    // Compare content, not size: the padded _wCRC.bin keeps a constant size while
+    // its content changes per build, so a size check would serve a stale copy.
+    {
+        QFile existing(dest);
+        if (existing.exists() && existing.open(QIODevice::ReadOnly)) {
+            const QByteArray cur = existing.readAll();
+            existing.close();
+            if (cur == data)
+                return dest;
+        }
+    }
 
     QFile out(dest);
     if (!out.open(QIODevice::WriteOnly)) {
         emit updateError("Cannot write bundled firmware to the temp folder.");
+        return QString();
+    }
+    out.write(data);
+    out.close();
+    return dest;
+}
+
+QString SelfUpdater::extractStockAsset(const QString &name)
+{
+    // Extract a bundled Factory-Restore asset (:/firmware/stock/<name>) to a
+    // temp file and return its path. Used by the Factory Restore flow to hand
+    // the Restore Host / stock M1 / stock ESP images to the flasher.
+    const QString resPath = QStringLiteral(":/firmware/stock/") + name;
+    QFile res(resPath);
+    if (!res.open(QIODevice::ReadOnly)) {
+        emit updateError(QStringLiteral("Bundled asset not found: %1").arg(name));
+        return QString();
+    }
+    const QByteArray data = res.readAll();
+    res.close();
+
+    const QString dest = QDir(QDir::tempPath()).filePath(name);
+    // Re-extract unless the existing temp file is byte-identical. Size alone is
+    // NOT sufficient: the Restore Host _wCRC.bin is always the same padded size
+    // but its content changes every build, so a size-only check would keep
+    // serving a stale image from a previous session/build.
+    {
+        QFile existing(dest);
+        if (existing.exists() && existing.open(QIODevice::ReadOnly)) {
+            const QByteArray cur = existing.readAll();
+            existing.close();
+            if (cur == data)
+                return dest;
+        }
+    }
+
+    QFile out(dest);
+    if (!out.open(QIODevice::WriteOnly)) {
+        emit updateError(QStringLiteral("Cannot write %1 to the temp folder.").arg(name));
         return QString();
     }
     out.write(data);

@@ -17,6 +17,10 @@ Item {
     property string selectedFileName: ""
     property string downloadedFilePath: ""
     property bool flashAfterDownload: false   // set by "Download and Flash"
+    // True only while THIS view is driving the flash. The Factory Restore flow
+    // also calls startFwUpdate; without this guard its shared fwUpdate* signals
+    // would pop this view's dialogs over the Factory Restore screen.
+    property bool ownFlash: false
 
     function basename(p) {
         var parts = p.split(/[/\\]/)
@@ -52,17 +56,22 @@ Item {
     Connections {
         target: m1device
         function onFwUpdateProgress(percent) {
+            if (!view.ownFlash) return
             view.flashing = true
             view.flashPercent = percent
             view.flashStatus = "Writing firmware to the inactive bank…"
         }
         function onFwUpdateComplete() {
+            if (!view.ownFlash) return
+            view.ownFlash = false
             view.flashing = false
             view.flashStatus = "Success — firmware written and CRC-verified. Use Dual Boot to switch to it."
             flashStatusLabel.color = "#4CAF50"
             updateDoneDialog.open()
         }
         function onFwUpdateError(message) {
+            if (!view.ownFlash) return
+            view.ownFlash = false
             view.flashing = false
             view.flashStatus = "Flash failed: " + message + "  —  reboot the M1 and try again."
             flashStatusLabel.color = "#F44336"
@@ -784,6 +793,7 @@ Item {
         onAccepted: {
             flashStatusLabel.color = Material.foreground
             view.flashStatus = ""
+            view.ownFlash = true
             m1device.startFwUpdate(view.selectedFilePath)
         }
     }

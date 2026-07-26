@@ -376,6 +376,36 @@ Item {
                         }
                     }
 
+                    // App accent color (persisted; drives Material.accent app-wide)
+                    RowLayout {
+                        spacing: 10
+                        Label { text: "Accent color:" }
+                        Repeater {
+                            model: [
+                                { key: "green",   col: "#2FBF71", label: "Emerald (default)" },
+                                { key: "magenta", col: "#E24C82", label: "Monstatek magenta" },
+                                { key: "indigo",  col: "#7C6CF0", label: "Indigo" },
+                                { key: "amber",   col: "#F0A83A", label: "Amber" },
+                                { key: "cyan",    col: "#2CB8C6", label: "Cyan" }
+                            ]
+                            delegate: Rectangle {
+                                width: 26; height: 26; radius: 13
+                                color: modelData.col
+                                border.color: uiSettings.accent === modelData.key ? Material.foreground : "#88808080"
+                                border.width: uiSettings.accent === modelData.key ? 3 : 1
+                                ToolTip.visible: acHover.hovered
+                                ToolTip.delay: 300
+                                ToolTip.text: modelData.label
+                                HoverHandler { id: acHover }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: uiSettings.accent = modelData.key
+                                }
+                            }
+                        }
+                    }
+
                     // M1 device-skin case colour (shown on Screen Mirror & Device Info)
                     RowLayout {
                         spacing: 10

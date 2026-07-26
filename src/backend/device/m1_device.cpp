@@ -859,7 +859,7 @@ void M1Device::rebootEsp32()
     QTimer::singleShot(2500, this, &M1Device::requestDeviceInfo);
 }
 
-void M1Device::startEspUpdate(const QString &binFilePath, uint32_t flashAddr)
+void M1Device::startEspUpdate(const QString &binFilePath, uint32_t flashAddr, bool force)
 {
     if (m_espUpdateState != EspUpdateState::Idle) {
         emit espUpdateError("ESP32 update already in progress");
@@ -884,31 +884,66 @@ void M1Device::startEspUpdate(const QString &binFilePath, uint32_t flashAddr)
         return;
     }
 
-    // Size validation based on flash type
-    constexpr uint32_t APP_MAX_SIZE     = 1600 * 1024;  // 1600 KB
-    constexpr uint32_t FACTORY_MIN_SIZE = 4000 * 1024;  // 4000 KB
+    // Validate the image matches the selected flash type (unless overridden).
+    // A factory image is defined by STRUCTURE, not size: it has a bootloader
+    // (ESP magic 0xE9) at offset 0 and a partition table (magic 0xAA50) at
+    // 0x8000. Valid factory images range from ~1 MB (trimmed, like the stock
+    // network_adapter/StealthHybrid builds) to a full 4 MB (0xFF-padded, like
+    // ours) — so a minimum-size test is wrong and rejects genuine images.
+    constexpr uint32_t APP_MAX_SIZE = 1600 * 1024;  // 1600 KB
+    auto u8 = [this](int i) -> uint8_t {
+        return (i >= 0 && i < m_espUpdateData.size())
+                   ? static_cast<uint8_t>(m_espUpdateData[i]) : 0;
+    };
 
-    if (flashAddr == 0x60000) {
-        // App-only: must be under 1600 KB (app partition starts at 0x60000)
-        if (m_espUpdateSize > APP_MAX_SIZE) {
-            emit espUpdateError(
-                QString("File too large for app-only flash (%1 KB). "
-                        "App-only images must be under 1600 KB. "
-                        "This looks like a factory image — select Factory Image instead.")
-                    .arg(m_espUpdateSize / 1024));
-            m_espUpdateData.clear();
-            return;
-        }
-    } else if (flashAddr == 0x00000) {
-        // Factory: must be over 4000 KB
-        if (m_espUpdateSize < FACTORY_MIN_SIZE) {
-            emit espUpdateError(
-                QString("File too small for factory flash (%1 KB). "
-                        "Factory images are typically over 4000 KB. "
-                        "This looks like an app-only image — select App-Only instead.")
-                    .arg(m_espUpdateSize / 1024));
-            m_espUpdateData.clear();
-            return;
+    if (!force) {
+        if (flashAddr == 0x00000) {
+            // Factory: require bootloader + partition table.
+            const bool hasBootloader = u8(0) == 0xE9;
+            const bool hasPartTable  = m_espUpdateData.size() > 0x8001 &&
+                                       u8(0x8000) == 0xAA && u8(0x8001) == 0x50;
+            if (!hasBootloader || !hasPartTable) {
+                emit espUpdateError(
+                    QString("This doesn't look like a factory image — no %1 found. "
+                            "It may be an app-only image (select App-Only), or enable "
+                            "\"Force flash\" if you're sure.")
+                        .arg(!hasBootloader ? "bootloader at 0x0"
+                                            : "partition table at 0x8000"));
+                m_espUpdateData.clear();
+                return;
+            }
+        } else if (flashAddr == 0x60000) {
+            // App-only: must be a bare app image — a valid ESP image (0xE9) that
+            // does NOT carry a partition table at 0x8000. A factory image (which
+            // has both a bootloader and a partition table) flashed at the app
+            // offset would brick the ESP, so reject it here.
+            const bool hasEspMagic  = u8(0) == 0xE9;
+            const bool hasPartTable = m_espUpdateData.size() > 0x8001 &&
+                                      u8(0x8000) == 0xAA && u8(0x8001) == 0x50;
+            if (!hasEspMagic) {
+                emit espUpdateError(
+                    "This isn't a valid ESP app image (no 0xE9 header at 0x0). "
+                    "Check the file, or enable \"Force flash\" if you're sure.");
+                m_espUpdateData.clear();
+                return;
+            }
+            if (hasPartTable) {
+                emit espUpdateError(
+                    "This looks like a factory image (partition table at 0x8000), "
+                    "not an app-only image — select Factory Image, or enable "
+                    "\"Force flash\".");
+                m_espUpdateData.clear();
+                return;
+            }
+            if (m_espUpdateSize > APP_MAX_SIZE) {
+                emit espUpdateError(
+                    QString("File too large for app-only flash (%1 KB). "
+                            "App-only images must be under 1600 KB. "
+                            "This looks like a factory image — select Factory Image instead.")
+                        .arg(m_espUpdateSize / 1024));
+                m_espUpdateData.clear();
+                return;
+            }
         }
     }
 
@@ -1150,6 +1185,10 @@ void M1Device::handleDeviceInfoResp(const rpc::Frame &frame)
         m_deviceInfo.chargeState      = info->charge_state;
         m_deviceInfo.chargeFault      = info->charge_fault;
     }
+
+    // Firmware variant (appended after charge_fault): 0=normal, 1=recovery, 2=restore host
+    constexpr int FW_VARIANT_SIZE = offsetof(rpc::DeviceInfoPayload, fw_variant) + 1;
+    m_deviceInfo.fwVariant = (frame.payload.size() >= FW_VARIANT_SIZE) ? info->fw_variant : 0;
 
     emit deviceInfoUpdated();
 }

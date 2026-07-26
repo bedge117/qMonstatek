@@ -663,6 +663,33 @@ Item {
                         }
                     }
 
+                    // Bundled Restore Host FW — un-bricks with no internet needed
+                    RowLayout {
+                        spacing: 12
+                        visible: selfUpdater.bundledFirmwareName().length > 0
+                        Button {
+                            text: "Use bundled Restore Host firmware"
+                            enabled: !swdRecovery.running
+                            Material.foreground: "#4CAF50"
+                            onClicked: {
+                                var p = selfUpdater.bundledFirmwarePath()
+                                if (p.length > 0) {
+                                    view.selectedFilePath = p
+                                    view.selectedFileName = selfUpdater.bundledFirmwareName()
+                                }
+                            }
+                        }
+                        Label {
+                            text: "Works with no internet. This is the Restore Host firmware — it " +
+                                  "un-bricks the M1 and gets it talking to qMonstatek again. From there " +
+                                  "you can install a real firmware (M1 Update) or run a full Factory Restore."
+                            font.pixelSize: 13
+                            color: Material.hintTextColor
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
                     RowLayout {
                         spacing: 12
                         Button {
@@ -678,33 +705,6 @@ Item {
                         Label {
                             text: "Fetch the newest firmware from " + githubChecker.repoUrl +
                                   ". Choose a different repo in Settings."
-                            font.pixelSize: 13
-                            color: Material.hintTextColor
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    // Bundled Recovery FW — un-bricks with no internet needed
-                    RowLayout {
-                        spacing: 12
-                        visible: selfUpdater.bundledFirmwareName().length > 0
-                        Button {
-                            text: "Use bundled Recovery firmware"
-                            enabled: !swdRecovery.running
-                            Material.foreground: "#4CAF50"
-                            onClicked: {
-                                var p = selfUpdater.bundledFirmwarePath()
-                                if (p.length > 0) {
-                                    view.selectedFilePath = p
-                                    view.selectedFileName = selfUpdater.bundledFirmwareName()
-                                }
-                            }
-                        }
-                        Label {
-                            text: "Works with no internet. This is the minimal Recovery firmware — it " +
-                                  "un-bricks the M1 and gets it talking to qMonstatek again, then you " +
-                                  "install a real firmware from M1 Update (or DFU)."
                             font.pixelSize: 13
                             color: Material.hintTextColor
                             wrapMode: Text.WordWrap

@@ -855,6 +855,33 @@ Item {
                         }
                     }
 
+                    // Bundled Restore Host FW — un-bricks over DFU with no internet
+                    RowLayout {
+                        spacing: 12
+                        visible: selfUpdater.bundledFirmwareName().length > 0
+                        Button {
+                            text: "Use bundled Restore Host firmware"
+                            enabled: !dfuFlasher.flashing
+                            Material.foreground: "#4CAF50"
+                            onClicked: {
+                                var p = selfUpdater.bundledFirmwarePath()
+                                if (p.length > 0) {
+                                    view.selectedFilePath = p
+                                    view.selectedFileName = selfUpdater.bundledFirmwareName()
+                                }
+                            }
+                        }
+                        Label {
+                            text: "Works with no internet. Flashes the Restore Host over DFU — it gets the " +
+                                  "M1 talking to qMonstatek again, then you can install a real firmware " +
+                                  "(M1 Update) or run a full Factory Restore."
+                            font.pixelSize: 13
+                            color: Material.hintTextColor
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
                     RowLayout {
                         spacing: 12
                         Button {
