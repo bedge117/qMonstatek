@@ -964,7 +964,7 @@ void M1Device::startEspUpdate(const QString &binFilePath, uint32_t flashAddr, bo
              << "file MD5 =" << fileMd5;
     sendCommand(rpc::CMD_ESP_UPDATE_START, payload);
     emit espUpdateProgress(0);
-    emit espUpdateStatus("Connecting to ESP32 and erasing flash... (this takes 60-80s for 4MB)");
+    emit espUpdateStatus("Connecting to ESP32 and erasing flash — this can take up to 2 minutes. Please wait…");
 }
 
 void M1Device::espUpdateSendNextChunk()

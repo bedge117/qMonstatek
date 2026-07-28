@@ -6,12 +6,27 @@ import QtQuick.Layouts
 Item {
     id: view
 
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 24
-        spacing: 16
+    // Scrollable content region — sits ABOVE the pinned footer so the support
+    // button is never overlapped, clipped, or pushed off-screen.
+    ScrollView {
+        id: aboutScroll
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: footer.top
+        contentWidth: availableWidth
+        clip: true
 
-        Item { Layout.fillHeight: true }
+        ColumnLayout {
+            x: 24
+            width: aboutScroll.availableWidth - 48
+            // At least viewport-tall so the fillHeight spacers still center short
+            // content; grows taller (and scrolls) when the Updates section expands
+            // — otherwise the bottom items (incl. Buy me a coffee) get clipped.
+            height: Math.max(implicitHeight, aboutScroll.availableHeight)
+            spacing: 16
+
+            Item { Layout.fillHeight: true }
 
         // App title
         Label {
@@ -285,52 +300,70 @@ Item {
             }
         }
 
+            Item { Layout.fillHeight: true }
+        }
+    }
+
+    // ── Pinned footer — ALWAYS visible at the bottom of the About page, no matter
+    //    the window size or whether the Updates section above is expanded. The
+    //    support button lives here so it can never be clipped or scrolled away. ──
+    Rectangle {
+        id: footer
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        implicitHeight: footerCol.implicitHeight + 28
+        color: "transparent"
+
+        // hairline divider along the top edge of the footer
         Rectangle {
-            Layout.preferredWidth: 300
-            Layout.preferredHeight: 1
-            Layout.alignment: Qt.AlignHCenter
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: 1
             color: Material.dividerColor
-            Layout.topMargin: 16
-            Layout.bottomMargin: 16
         }
 
-        Label {
-            text: "Open Source — github.com/bedge117/qMonstatek"
-            font.pixelSize: 12
-            color: Material.hintTextColor
-            Layout.alignment: Qt.AlignHCenter
-        }
+        ColumnLayout {
+            id: footerCol
+            anchors.centerIn: parent
+            spacing: 8
 
-        // Support link — opens Buy Me a Coffee in the default browser. (The BMC
-        // <script> embed is web-only; a native button + openUrlExternally is the
-        // Qt equivalent.)
-        Button {
-            id: bmcButton
-            Layout.alignment: Qt.AlignHCenter
-            Layout.topMargin: 12
-            implicitWidth: 210
-            implicitHeight: 46
-            hoverEnabled: true
-            background: Rectangle {
-                radius: 8
-                color: bmcButton.down ? "#E5C700" : "#FFDD00"
-                border.color: "#000000"
-                border.width: 1
+            Label {
+                text: "Open Source — github.com/bedge117/qMonstatek"
+                font.pixelSize: 12
+                color: Material.hintTextColor
+                Layout.alignment: Qt.AlignHCenter
             }
-            contentItem: Text {
-                text: "☕  Buy me a coffee"
-                color: "#000000"
-                font.pixelSize: 16
-                font.bold: true
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+
+            // Support link — opens Buy Me a Coffee in the default browser. (The BMC
+            // <script> embed is web-only; a native button + openUrlExternally is the
+            // Qt equivalent.)
+            Button {
+                id: bmcButton
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: 210
+                implicitHeight: 46
+                hoverEnabled: true
+                background: Rectangle {
+                    radius: 8
+                    color: bmcButton.down ? "#E5C700" : "#FFDD00"
+                    border.color: "#000000"
+                    border.width: 1
+                }
+                contentItem: Text {
+                    text: "☕  Buy me a coffee"
+                    color: "#000000"
+                    font.pixelSize: 16
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: Qt.openUrlExternally("https://www.buymeacoffee.com/edgehome")
+
+                ToolTip.visible: hovered
+                ToolTip.text: "buymeacoffee.com/edgehome"
             }
-            onClicked: Qt.openUrlExternally("https://www.buymeacoffee.com/edgehome")
-
-            ToolTip.visible: hovered
-            ToolTip.text: "buymeacoffee.com/edgehome"
         }
-
-        Item { Layout.fillHeight: true }
     }
 }
