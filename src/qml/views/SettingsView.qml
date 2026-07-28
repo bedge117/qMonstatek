@@ -14,6 +14,9 @@ Item {
             isDefault: true
             status: ""
             checking: false
+            releaseUrl: ""
+            assetUrl: ""
+            assetName: ""
         }
         ListElement {
             url: "sincere360/M1_SiN360"
@@ -21,6 +24,9 @@ Item {
             isDefault: false
             status: ""
             checking: false
+            releaseUrl: ""
+            assetUrl: ""
+            assetName: ""
         }
         ListElement {
             url: "VintageVolts/M1_VintageVolts"
@@ -28,6 +34,9 @@ Item {
             isDefault: false
             status: ""
             checking: false
+            releaseUrl: ""
+            assetUrl: ""
+            assetName: ""
         }
         ListElement {
             url: "hapaxx11/M1"
@@ -35,6 +44,9 @@ Item {
             isDefault: false
             status: ""
             checking: false
+            releaseUrl: ""
+            assetUrl: ""
+            assetName: ""
         }
         ListElement {
             url: "dagnazty/M1_T-1000"
@@ -42,6 +54,9 @@ Item {
             isDefault: false
             status: ""
             checking: false
+            releaseUrl: ""
+            assetUrl: ""
+            assetName: ""
         }
         ListElement {
             url: "RogueMaster/M1"
@@ -49,6 +64,9 @@ Item {
             isDefault: false
             status: ""
             checking: false
+            releaseUrl: ""
+            assetUrl: ""
+            assetName: ""
         }
         ListElement {
             url: "Monstatek/M1"
@@ -56,14 +74,39 @@ Item {
             isDefault: false
             status: ""
             checking: false
+            releaseUrl: ""
+            assetUrl: ""
+            assetName: ""
         }
     }
 
     ButtonGroup { id: repoGroup }
 
+    // Pick the M1 firmware .bin from a release's assets: prefer the CRC-injected
+    // *_wCRC.bin, then any .bin that isn't an ESP/factory image.
+    function pickM1Asset(assets) {
+        if (!assets) return null
+        var i, n
+        for (i = 0; i < assets.length; i++) {
+            n = (assets[i].name || "").toLowerCase()
+            if (n.indexOf("wcrc") >= 0 && n.indexOf(".bin") >= 0 &&
+                n.indexOf("esp") < 0 && n.indexOf("factory") < 0)
+                return assets[i]
+        }
+        for (i = 0; i < assets.length; i++) {
+            n = (assets[i].name || "").toLowerCase()
+            if (n.indexOf(".bin") >= 0 && n.indexOf("esp") < 0 && n.indexOf("factory") < 0)
+                return assets[i]
+        }
+        return null
+    }
+
     function checkLatest(index) {
         repoModel.setProperty(index, "checking", true)
         repoModel.setProperty(index, "status", "Checking...")
+        repoModel.setProperty(index, "releaseUrl", "")
+        repoModel.setProperty(index, "assetUrl", "")
+        repoModel.setProperty(index, "assetName", "")
 
         var repo = repoModel.get(index).url
         var xhr = new XMLHttpRequest()
@@ -78,6 +121,13 @@ Item {
                         if (dateStr.length > 0)
                             result += "  (" + dateStr + ")"
                         repoModel.setProperty(index, "status", result)
+                        repoModel.setProperty(index, "releaseUrl",
+                            json.html_url || ("https://github.com/" + repo + "/releases/tag/" + json.tag_name))
+                        var asset = view.pickM1Asset(json.assets)
+                        if (asset) {
+                            repoModel.setProperty(index, "assetUrl", asset.browser_download_url || "")
+                            repoModel.setProperty(index, "assetName", asset.name || "")
+                        }
                     } catch (e) {
                         repoModel.setProperty(index, "status", "Error parsing response")
                     }
@@ -85,6 +135,60 @@ Item {
                     repoModel.setProperty(index, "status", "No release candidates found")
                 } else {
                     repoModel.setProperty(index, "status", "Error checking repository (HTTP " + xhr.status + ")")
+                }
+            }
+        }
+        xhr.open("GET", "https://api.github.com/repos/" + repo + "/releases/latest")
+        xhr.setRequestHeader("User-Agent", "qMonstatek/1.0")
+        xhr.setRequestHeader("Accept", "application/vnd.github.v3+json")
+        xhr.send()
+    }
+
+    // ── ESP32 firmware repo (independent, persisted via esp32Checker) ──
+    property string espStatus: ""
+    property bool   espChecking: false
+    property string espReleaseUrl: ""
+    property string espAssetUrl: ""
+    property string espAssetName: ""
+
+    function pickEspAsset(assets) {
+        if (!assets) return null
+        var i, n
+        for (i = 0; i < assets.length; i++) {
+            n = (assets[i].name || "").toLowerCase()
+            if (n.indexOf("factory") >= 0 && n.indexOf(".bin") >= 0 && n.indexOf(".md5") < 0)
+                return assets[i]
+        }
+        for (i = 0; i < assets.length; i++) {
+            n = (assets[i].name || "").toLowerCase()
+            if (n.indexOf(".bin") >= 0 && n.indexOf(".md5") < 0)
+                return assets[i]
+        }
+        return null
+    }
+
+    function checkLatestEsp() {
+        if (esp32Checker.repoUrl.length === 0) { view.espStatus = "No ESP repo selected."; return }
+        view.espChecking = true; view.espStatus = "Checking..."
+        view.espReleaseUrl = ""; view.espAssetUrl = ""; view.espAssetName = ""
+        var repo = esp32Checker.repoUrl
+        var xhr = new XMLHttpRequest()
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                view.espChecking = false
+                if (xhr.status === 200) {
+                    try {
+                        var json = JSON.parse(xhr.responseText)
+                        var d = json.published_at ? json.published_at.substring(0, 10) : ""
+                        view.espStatus = "Latest: " + json.tag_name + (d.length > 0 ? "  (" + d + ")" : "")
+                        view.espReleaseUrl = json.html_url || ("https://github.com/" + repo + "/releases/tag/" + json.tag_name)
+                        var a = view.pickEspAsset(json.assets)
+                        if (a) { view.espAssetUrl = a.browser_download_url || ""; view.espAssetName = a.name || "" }
+                    } catch (e) { view.espStatus = "Error parsing response" }
+                } else if (xhr.status === 404) {
+                    view.espStatus = "No release candidates found"
+                } else {
+                    view.espStatus = "Error checking repository (HTTP " + xhr.status + ")"
                 }
             }
         }
@@ -171,7 +275,36 @@ Item {
                                     return "#F44336"
                                 }
                                 leftPadding: 48
+                            }
+
+                            // Release-notes link + direct download, shown once a
+                            // release is found (same hyperlink scheme as elsewhere).
+                            RowLayout {
+                                visible: model.releaseUrl.length > 0
+                                Layout.leftMargin: 48
                                 Layout.bottomMargin: 4
+                                spacing: 16
+
+                                Label {
+                                    text: "<a href='notes'>Release notes</a>"
+                                    textFormat: Text.RichText
+                                    font.pixelSize: 11
+                                    linkColor: "#8FCBFF"
+                                    onLinkActivated: Qt.openUrlExternally(model.releaseUrl)
+                                    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
+                                }
+                                Button {
+                                    text: "Download"
+                                    font.pixelSize: 11
+                                    flat: true
+                                    enabled: model.assetUrl.length > 0 || model.releaseUrl.length > 0
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: model.assetName.length > 0
+                                                  ? "Download " + model.assetName + " in your browser"
+                                                  : "Open the release page to download"
+                                    onClicked: Qt.openUrlExternally(
+                                        model.assetUrl.length > 0 ? model.assetUrl : model.releaseUrl)
+                                }
                             }
                         }
                     }
@@ -285,6 +418,125 @@ Item {
                 }
             }
 
+            // ESP32 Firmware Repository (independent of the M1 repo above)
+            GroupBox {
+                title: "ESP32 Firmware Repository"
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 4
+
+                    Label {
+                        text: "Where to fetch ESP32 (SPI brain) firmware — used by the ESP32 Update tab and " +
+                              "the one-click Update All. This is separate from the M1 repo above."
+                        font.pixelSize: 11
+                        color: Material.hintTextColor
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: 8
+                    }
+
+                    ButtonGroup { id: espRepoGroup }
+
+                    RadioButton {
+                        ButtonGroup.group: espRepoGroup
+                        text: "bedge117/m1-esp32-brain (SPI brain)  [Default]"
+                        font.pixelSize: 13
+                        Component.onCompleted: checked = (esp32Checker.repoUrl === "bedge117/m1-esp32-brain")
+                        onClicked: esp32Checker.repoUrl = "bedge117/m1-esp32-brain"
+                    }
+
+                    RowLayout {
+                        spacing: 4
+                        RadioButton {
+                            id: espCustomRadio
+                            ButtonGroup.group: espRepoGroup
+                            text: "Custom:"
+                            font.pixelSize: 13
+                            Component.onCompleted: {
+                                var r = esp32Checker.repoUrl
+                                if (r.length > 0 && r !== "bedge117/m1-esp32-brain") {
+                                    checked = true
+                                    espCustomField.text = r
+                                }
+                            }
+                            onClicked: { if (espCustomField.text.length > 0) esp32Checker.repoUrl = espCustomField.text }
+                        }
+                        TextField {
+                            id: espCustomField
+                            placeholderText: "owner/repo"
+                            font.pixelSize: 13
+                            Layout.fillWidth: true
+                            onTextEdited: { if (espCustomRadio.checked && text.length > 0) esp32Checker.repoUrl = text }
+                            onAccepted: { espCustomRadio.checked = true; if (text.length > 0) esp32Checker.repoUrl = text }
+                        }
+                    }
+
+                    RadioButton {
+                        ButtonGroup.group: espRepoGroup
+                        text: "None — don't track ESP firmware"
+                        font.pixelSize: 13
+                        Component.onCompleted: checked = (esp32Checker.repoUrl.length === 0)
+                        onClicked: esp32Checker.repoUrl = ""
+                    }
+
+                    RowLayout {
+                        spacing: 8
+                        Layout.topMargin: 4
+                        Button {
+                            text: view.espChecking ? "Checking..." : "Check Latest"
+                            font.pixelSize: 11
+                            flat: true
+                            enabled: !view.espChecking && esp32Checker.repoUrl.length > 0
+                            onClicked: view.checkLatestEsp()
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    Label {
+                        visible: view.espStatus.length > 0
+                        text: view.espStatus
+                        font.pixelSize: 11
+                        color: {
+                            if (view.espStatus.indexOf("Latest:") === 0) return "#4CAF50"
+                            if (view.espStatus === "Checking...") return Material.hintTextColor
+                            if (view.espStatus.indexOf("No release") === 0) return "#FF9800"
+                            return "#F44336"
+                        }
+                        leftPadding: 24
+                    }
+
+                    RowLayout {
+                        visible: view.espReleaseUrl.length > 0
+                        Layout.leftMargin: 24
+                        spacing: 16
+                        Label {
+                            text: "<a href='notes'>Release notes</a>"
+                            textFormat: Text.RichText
+                            font.pixelSize: 11
+                            linkColor: "#8FCBFF"
+                            onLinkActivated: Qt.openUrlExternally(view.espReleaseUrl)
+                            MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
+                        }
+                        Button {
+                            text: "Download"
+                            font.pixelSize: 11
+                            flat: true
+                            enabled: view.espAssetUrl.length > 0 || view.espReleaseUrl.length > 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: view.espAssetName.length > 0
+                                          ? "Download " + view.espAssetName + " in your browser"
+                                          : "Open the release page to download"
+                            onClicked: Qt.openUrlExternally(
+                                view.espAssetUrl.length > 0 ? view.espAssetUrl : view.espReleaseUrl)
+                        }
+                    }
+                }
+            }
+
             // Screen Mirror Settings
             GroupBox {
                 title: "Screen Mirror"
@@ -368,11 +620,25 @@ Item {
                             ButtonGroup.group: themeGroup
                             onClicked: uiSettings.theme = "light"
                         }
+                        RadioButton {
+                            id: chromeRadio
+                            text: "Chrome"
+                            ButtonGroup.group: themeGroup
+                            onClicked: uiSettings.theme = "chrome"
+                        }
+                        RadioButton {
+                            id: hackerRadio
+                            text: "Hacker"
+                            ButtonGroup.group: themeGroup
+                            onClicked: uiSettings.theme = "hacker"
+                        }
 
                         // Reflect the persisted setting on load
                         Component.onCompleted: {
-                            if (uiSettings.theme === "light") lightRadio.checked = true
-                            else darkRadio.checked = true
+                            if (uiSettings.theme === "light")       lightRadio.checked = true
+                            else if (uiSettings.theme === "chrome") chromeRadio.checked = true
+                            else if (uiSettings.theme === "hacker") hackerRadio.checked = true
+                            else                                    darkRadio.checked = true
                         }
                     }
 

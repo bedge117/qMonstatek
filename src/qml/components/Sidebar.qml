@@ -65,10 +65,10 @@ Rectangle {
 
     readonly property var menuItems: [
         { name: "deviceInfo",     label: "Device Info",     icon: "ℹ",  section: "",         requires: "compatible" },
-        { name: "screenMirror",   label: "Screen Mirror",   icon: "🖥", section: "",         requires: "compatible" },
+        // Screen Mirror folded into Device Info (Start Stream there). View kept at
+        // contentStack index 1 (unlinked) so it's trivially restorable.
         { name: "fileManager",    label: "File Manager",    icon: "📁", section: "",         requires: "compatible" },
-        { name: "firmwareUpdate", label: "M1 Update",    icon: "⬆", section: "Firmware", requires: "compatible" },
-        { name: "esp32Update",    label: "ESP32 Update", icon: "📡", section: "",         requires: "compatible" },
+        { name: "firmwareUpdate", label: "Firmware Update", icon: "⬆", section: "Firmware", requires: "compatible" },
         { name: "dualBoot",       label: "Dual Boot",    icon: "🔄", section: "",         requires: "compatible" },
         { name: "factoryRestore", label: "Factory Restore", icon: "🏭", section: "",      requires: "compatible" },
         { name: "dfuFlash",      label: "DFU Flash",        icon: "⚡", section: "Recovery", requires: "recovery" },

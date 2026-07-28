@@ -21,6 +21,16 @@ ToolBar {
     property string updateVersion: ""
     signal openUpdate()
 
+    // Driven by main.qml's firmware (M1 / ESP32) update check on connect
+    property bool fwUpdateAvailable: false
+    property string fwUpdateText: ""
+    signal openFirmwareUpdate()
+
+    // Guided-setup follow-up: M1 core was installed via DFU Guided Install; the
+    // matching ESP firmware still needs flashing.
+    property bool setupPending: false
+    signal openSetup()
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 12
@@ -132,6 +142,90 @@ ToolBar {
             ToolTip.visible: updHover.hovered
             ToolTip.text: "A newer qMonstatek is available — click to open the About page and install"
             HoverHandler { id: updHover }
+        }
+
+        // Firmware (M1 / ESP32) update-available indicator (click → Firmware Update)
+        Rectangle {
+            visible: bar.fwUpdateAvailable
+            Layout.leftMargin: 16
+            implicitWidth: fwUpdateRow.implicitWidth + 16
+            implicitHeight: 22
+            radius: 11
+            color: "#4426A6C6"   // soft teal fill — distinct from the green app chip
+
+            RowLayout {
+                id: fwUpdateRow
+                anchors.centerIn: parent
+                spacing: 5
+
+                Rectangle {
+                    width: 9; height: 9; radius: 4.5
+                    color: "#26A6C6"
+                    SequentialAnimation on opacity {
+                        running: bar.fwUpdateAvailable
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1.0; to: 0.3; duration: 700; easing.type: Easing.InOutQuad }
+                        NumberAnimation { from: 0.3; to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+                    }
+                }
+                Label {
+                    text: bar.fwUpdateText.length > 0 ? bar.fwUpdateText : "Firmware update available!"
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: "#26A6C6"
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: bar.openFirmwareUpdate()
+            }
+            ToolTip.visible: fwUpdHover.hovered
+            ToolTip.text: "A newer device firmware is available — click to open Firmware Update"
+            HoverHandler { id: fwUpdHover }
+        }
+
+        // Guided-setup follow-up chip (amber): finish by installing the ESP firmware
+        Rectangle {
+            visible: bar.setupPending
+            Layout.leftMargin: 16
+            implicitWidth: setupRow.implicitWidth + 16
+            implicitHeight: 22
+            radius: 11
+            color: "#44C9A227"
+
+            RowLayout {
+                id: setupRow
+                anchors.centerIn: parent
+                spacing: 5
+
+                Rectangle {
+                    width: 9; height: 9; radius: 4.5
+                    color: "#C9A227"
+                    SequentialAnimation on opacity {
+                        running: bar.setupPending
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1.0; to: 0.3; duration: 700; easing.type: Easing.InOutQuad }
+                        NumberAnimation { from: 0.3; to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+                    }
+                }
+                Label {
+                    text: "Finish setup: install ESP firmware"
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: "#C9A227"
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: bar.openSetup()
+            }
+            ToolTip.visible: setupHover.hovered
+            ToolTip.text: "The M1 core is installed — click to flash the matching ESP firmware and finish setup"
+            HoverHandler { id: setupHover }
         }
 
         Item { Layout.fillWidth: true }

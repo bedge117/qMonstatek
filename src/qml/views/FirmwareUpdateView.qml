@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import "../components"
 
 Item {
     id: view
@@ -21,6 +22,30 @@ Item {
     // also calls startFwUpdate; without this guard its shared fwUpdate* signals
     // would pop this view's dialogs over the Factory Restore screen.
     property bool ownFlash: false
+
+    // Post-flash bank verification — the Dual Boot fwInfo, re-fetched when the
+    // "Update written" dialog opens so the new bank's CRC is checked before a swap.
+    property var fwInfo: null
+
+    // Which firmware source the user picked — mutually exclusive so only one
+    // Step-2 action is ever shown: "" (none) / "file" (Browse this PC) /
+    // "release" (Check for updates). Choosing one clears the other.
+    property string srcMode: ""
+
+    // Unified Firmware Update page: switch to the other chip's pane, and run the
+    // combined M1+ESP "check for updates" (both wired in main.qml).
+    signal requestChip(string which)
+    signal requestCheck()
+
+    // Entered when a check-for-updates runs (from this pane or main.qml's unified
+    // check): drop any browsed file so only the release path shows.
+    function enterReleaseMode() {
+        view.srcMode = "release"
+        view.releaseInfo = null
+        view.selectedFilePath = ""
+        view.selectedFileName = ""
+        view.flashStatus = ""
+    }
 
     function basename(p) {
         var parts = p.split(/[/\\]/)
@@ -45,6 +70,37 @@ Item {
         return null
     }
 
+    // newBank() = the bank the flash just wrote (currently inactive); curBank() = the
+    // one running now. These + the formatters below mirror the Dual Boot cards.
+    function newBank() { return !fwInfo ? null : (m1device.activeBank === 1 ? fwInfo.bank2 : fwInfo.bank1) }
+    function curBank() { return !fwInfo ? null : (m1device.activeBank === 1 ? fwInfo.bank1 : fwInfo.bank2) }
+
+    function isBankEmpty(b) {
+        if (!b) return true
+        if (b.major === 255 && b.minor === 255 && b.build === 255 && b.rc === 255) return true
+        if (b.major === 0 && b.minor === 0 && b.build === 0 && b.rc === 0 && b.imageSize === 0) return true
+        return false
+    }
+    function bankVerText(b) {
+        if (!b) return "…"
+        if (isBankEmpty(b)) return "Empty"
+        var v = "v" + b.major + "." + b.minor + "." + b.build + "." + b.rc
+        if (b.c3Revision > 0) v += "-C3." + b.c3Revision
+        return v
+    }
+    function bankSizeText(b) {
+        if (!b || isBankEmpty(b) || b.imageSize <= 0) return ""
+        return (b.imageSize / 1024).toFixed(0) + " KB"
+    }
+    // True only if the new bank reads back as real, CRC-valid firmware — mirrors Dual
+    // Boot's guard, so a corrupt write (even one FINISH reported "ok") can't be swapped.
+    function newBankValid() {
+        var b = newBank()
+        if (!b || isBankEmpty(b)) return false
+        if (b.imageSize > 0 && !b.crcValid) return false
+        return true
+    }
+
     function closeAllPopups() {
         bankInfoDialog.close()
         releaseNotesDialog.close()
@@ -61,12 +117,17 @@ Item {
             view.flashPercent = percent
             view.flashStatus = "Writing firmware to the inactive bank…"
         }
+        function onFwInfoReceived(info) {
+            view.fwInfo = info
+        }
         function onFwUpdateComplete() {
             if (!view.ownFlash) return
             view.ownFlash = false
             view.flashing = false
             view.flashStatus = "Success — firmware written and CRC-verified. Use Dual Boot to switch to it."
             flashStatusLabel.color = "#4CAF50"
+            view.fwInfo = null          // show "verifying…" until fresh bank info arrives
+            m1device.requestFwInfo()    // independently re-read the new bank's CRC
             updateDoneDialog.open()
         }
         function onFwUpdateError(message) {
@@ -120,6 +181,14 @@ Item {
     }
 
     // ===================== Popups =====================
+
+    // Modal "flashing in progress" overlay — pops over everything so it can't be
+    // missed at any window size, and blocks a second flash click.
+    FlashProgressDialog {
+        visible: view.flashing
+        statusText: view.flashStatus
+        percent: view.flashPercent
+    }
 
     // ── "What's a flash bank?" explainer ──
     Dialog {
@@ -255,7 +324,7 @@ Item {
                         {
                             q: "Which file do I flash here?",
                             a: "The M1 firmware image (usually the *_wCRC.bin from Releases). ESP32 firmware is flashed " +
-                               "on the separate ESP32 Update screen, not here."
+                               "on the ESP32 Firmware tab of this page (the selector at the top), not here."
                         }
                     ]
                     delegate: ColumnLayout {
@@ -268,14 +337,13 @@ Item {
         }
     }
 
-    // ── Completion popup (guides to Dual Boot) ──
+    // ── Completion popup (bank summary + one-click swap, or do it later) ──
     Dialog {
         id: updateDoneDialog
         title: "Update written"
         modal: true
         anchors.centerIn: parent
         width: Math.min(view.width - 60, 520)
-        standardButtons: Dialog.Ok
 
         ColumnLayout {
             anchors.fill: parent
@@ -286,10 +354,127 @@ Item {
                 font.pixelSize: 16; font.bold: true; color: "#4CAF50"
                 wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 460
             }
+
+            // Bank summary — what's running now vs where the new build landed.
+            Pane {
+                visible: m1device.connected
+                Layout.fillWidth: true
+                Material.elevation: 0
+                padding: 12
+                background: Rectangle {
+                    radius: 8
+                    color: Material.theme === Material.Dark ? Qt.lighter(Material.backgroundColor, 1.3)
+                                                            : Qt.darker(Material.backgroundColor, 1.03)
+                    border.width: 1
+                    border.color: Material.theme === Material.Dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(0,0,0,0.10)
+                }
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 16
+
+                    // Currently-running (active) bank
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.alignment: Qt.AlignTop
+                        spacing: 3
+                        Label { text: "Currently running"; font.pixelSize: 11; color: Material.hintTextColor }
+                        Label { text: "Bank " + m1device.activeBank; font.pixelSize: 15; font.bold: true }
+                        Label { text: view.bankVerText(view.curBank()); font.pixelSize: 12 }
+                        Label {
+                            visible: view.fwInfo !== null
+                            text: (view.curBank() && view.curBank().crcValid) ? "CRC: Valid" : "CRC: Invalid"
+                            color: (view.curBank() && view.curBank().crcValid) ? "#4CAF50" : "#F44336"
+                            font.pixelSize: 11
+                        }
+                        Label {
+                            visible: view.bankSizeText(view.curBank()).length > 0
+                            text: "Size: " + view.bankSizeText(view.curBank())
+                            font.pixelSize: 11; color: Material.hintTextColor
+                        }
+                        Label {
+                            visible: view.curBank() && view.curBank().buildDate && view.curBank().buildDate.length > 0
+                            text: "Built: " + (view.curBank() ? view.curBank().buildDate : "")
+                            font.pixelSize: 11; color: Material.hintTextColor
+                        }
+                    }
+
+                    Label { text: "→"; font.pixelSize: 18; color: Material.hintTextColor; Layout.alignment: Qt.AlignVCenter }
+
+                    // New firmware (the freshly-written, inactive bank)
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.alignment: Qt.AlignTop
+                        spacing: 3
+                        Label { text: "New firmware in"; font.pixelSize: 11; color: Material.hintTextColor }
+                        Label { text: "Bank " + (m1device.activeBank === 1 ? 2 : 1); font.pixelSize: 15; font.bold: true; color: "#4CAF50" }
+                        Label { text: view.bankVerText(view.newBank()); font.pixelSize: 12; font.bold: true; color: "#4CAF50" }
+                        Label {
+                            visible: view.fwInfo !== null
+                            text: (view.newBank() && view.newBank().crcValid) ? "CRC: Valid" : "CRC: Invalid"
+                            color: (view.newBank() && view.newBank().crcValid) ? "#4CAF50" : "#F44336"
+                            font.pixelSize: 11
+                        }
+                        Label {
+                            visible: view.bankSizeText(view.newBank()).length > 0
+                            text: "Size: " + view.bankSizeText(view.newBank())
+                            font.pixelSize: 11; color: Material.hintTextColor
+                        }
+                        Label {
+                            visible: view.newBank() && view.newBank().buildDate && view.newBank().buildDate.length > 0
+                            text: "Built: " + (view.newBank() ? view.newBank().buildDate : "")
+                            font.pixelSize: 11; color: Material.hintTextColor
+                        }
+                    }
+                }
+            }
+
+            // Independent verification of the freshly-written bank (belt-and-suspenders
+            // beyond the flash's own CRC step) — so a corrupt/unreadable bank can never
+            // be swapped into. The swap button stays disabled until this reads valid.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Label {
+                    text: view.fwInfo === null ? "⟳" : (view.newBankValid() ? "✓" : "✕")
+                    color: view.fwInfo === null ? Material.hintTextColor
+                           : (view.newBankValid() ? "#4CAF50" : "#F44336")
+                    font.pixelSize: 16; font.bold: true
+                }
+                Label {
+                    text: view.fwInfo === null
+                          ? "Verifying the new bank…"
+                          : (view.newBankValid()
+                             ? "New bank verified — CRC valid, safe to swap."
+                             : "New bank did NOT verify (CRC invalid or unreadable). Do NOT swap — re-flash instead.")
+                    color: view.fwInfo === null ? Material.hintTextColor
+                           : (view.newBankValid() ? "#4CAF50" : "#F44336")
+                    font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                }
+            }
+
             Label {
-                text: "Your current firmware is still running and untouched. Open Dual Boot to switch " +
-                      "the M1 to the new firmware — it will reboot into it, and you can switch back anytime."
+                text: "Swap banks to boot the new firmware now — the M1 reboots into it. Or do it " +
+                      "later in Dual Boot; either way you can switch back anytime."
                 font.pixelSize: 14; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.preferredWidth: 460
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Layout.topMargin: 4
+                spacing: 10
+                Button {
+                    // "&&" renders a literal "&" (a single "&" is a keyboard mnemonic).
+                    text: "Swap Bank && Reboot"
+                    highlighted: true
+                    enabled: m1device.connected && view.newBankValid()
+                    onClicked: { m1device.swapBanks(); updateDoneDialog.close() }
+                }
+                Button {
+                    text: "Later"
+                    onClicked: updateDoneDialog.close()
+                }
             }
         }
     }
@@ -390,13 +575,44 @@ Item {
 
     // ===================== Main content =====================
 
-    ScrollView {
+    ColumnLayout {
         anchors.fill: parent
+        spacing: 0
+
+        // ── Chip selector — LOCKED to the top (this one page covers M1 + ESP32) ──
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 20
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.bottomMargin: 8
+            spacing: 8
+
+            Label { text: "Update:"; font.pixelSize: 13; color: Material.hintTextColor }
+            Button {
+                text: "M1 Firmware"
+                highlighted: true            // active pane
+                onClicked: { /* already here */ }
+            }
+            Button {
+                text: "ESP32 Firmware"
+                onClicked: view.requestChip("esp")
+            }
+            Button {
+                text: "Update All"
+                onClicked: view.requestChip("all")
+            }
+        }
+
+        // ── Scrolling middle ──
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
 
         ColumnLayout {
             width: view.width
             spacing: 16
-            anchors.margins: 24
 
             // ── Title ──
             Label {
@@ -404,7 +620,7 @@ Item {
                 font.pixelSize: 26
                 font.bold: true
                 color: "#4CAF50"   // green — the normal, healthy update path
-                Layout.topMargin: 24
+                Layout.topMargin: 8
                 Layout.leftMargin: 24
             }
 
@@ -418,34 +634,8 @@ Item {
                 Layout.topMargin: 8
                 Layout.leftMargin: 24
                 Layout.rightMargin: 24
-                color: "white"
+                color: Material.foreground
                 font.pixelSize: 15
-            }
-
-            // Help link
-            Flow {
-                Layout.fillWidth: true
-                Layout.topMargin: 6
-                Layout.leftMargin: 24
-                Layout.rightMargin: 24
-                spacing: 26
-
-                Label {
-                    text: "<a href='bank'>What's a flash bank?</a>"
-                    textFormat: Text.RichText
-                    font.pixelSize: 15
-                    linkColor: "#8FCBFF"; font.bold: true
-                    onLinkActivated: bankInfoDialog.open()
-                    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
-                }
-                Label {
-                    text: "<a href='faq'>Troubleshooting</a>"
-                    textFormat: Text.RichText
-                    font.pixelSize: 15
-                    linkColor: "#8FCBFF"; font.bold: true
-                    onLinkActivated: updateFaqDialog.open()
-                    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
-                }
             }
 
             // ── Current firmware ──
@@ -532,21 +722,18 @@ Item {
                     RowLayout {
                         spacing: 12
                         Button {
-                            text: githubChecker.checking ? "Checking…" : "Check for updates"
-                            enabled: !githubChecker.checking && !view.downloading && !view.flashing
+                            text: (githubChecker.checking || esp32Checker.checking) ? "Checking…" : "Check for updates"
+                            enabled: !githubChecker.checking && !esp32Checker.checking && !view.downloading && !view.flashing
                             onClicked: {
-                                view.releaseInfo = null
+                                view.enterReleaseMode()
                                 ghStatusLabel.visible = false
                                 ghStatusLabel.color = Material.hintTextColor
-                                githubChecker.checkForUpdates(
-                                    m1device.fwMajor, m1device.fwMinor,
-                                    m1device.fwBuild, m1device.fwRC,
-                                    m1device.c3Revision)
+                                view.requestCheck()
                             }
                         }
                         Label {
-                            text: "Compares your installed version against the newest release on " +
-                                  githubChecker.repoUrl + ". Choose a different repo in Settings."
+                            text: "Checks both chips against " + githubChecker.repoUrl +
+                                  " and jumps to whichever needs an update. Choose a different repo in Settings."
                             font.pixelSize: 13
                             color: Material.hintTextColor
                             wrapMode: Text.WordWrap
@@ -570,7 +757,19 @@ Item {
                         color: Material.dividerColor
                     }
 
+                    // Nothing chosen yet — a single hint, no competing actions.
+                    Label {
+                        visible: view.srcMode === ""
+                        text: "No firmware chosen yet — Browse this PC or Check for updates above."
+                        color: Material.hintTextColor
+                        font.pixelSize: 14
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
+                    // ── FILE source: only the browsed file + its flash action ──
                     RowLayout {
+                        visible: view.srcMode === "file"
                         Layout.fillWidth: true
                         spacing: 12
                         Label {
@@ -583,17 +782,6 @@ Item {
                             elide: Text.ElideMiddle
                             Layout.fillWidth: true
                         }
-                        Button {
-                            text: "Save a copy…"
-                            flat: true
-                            font.pixelSize: 12
-                            visible: view.downloadedFilePath.length > 0 && !view.downloading
-                            onClicked: {
-                                var f = uiSettings.dialogFolder("firmwareSave")
-                                if (f != "") saveDialog.currentFolder = f
-                                saveDialog.open()
-                            }
-                        }
                     }
 
                     // Step 2 — flash it
@@ -604,9 +792,9 @@ Item {
                         Layout.topMargin: 4
                     }
 
-                    // Latest-release summary (after "Check for updates")
+                    // ── RELEASE source: latest-release summary (after "Check for updates") ──
                     RowLayout {
-                        visible: view.releaseInfo !== null
+                        visible: view.srcMode === "release" && view.releaseInfo !== null
                         spacing: 16
 
                         Label {
@@ -635,16 +823,19 @@ Item {
                     RowLayout {
                         spacing: 12
 
+                        // FILE source → flash the browsed file
                         Button {
                             text: "Flash Selected File"
                             highlighted: true
+                            visible: view.srcMode === "file"
                             enabled: m1device.connected && !view.flashing && view.selectedFileName.length > 0
                             onClicked: fileConfirmDialog.open()
                         }
 
+                        // RELEASE source → download the latest and flash it
                         Button {
                             text: view.downloading ? "Downloading…" : "Download and Flash Latest"
-                            visible: view.releaseInfo !== null
+                            visible: view.srcMode === "release" && view.releaseInfo !== null
                             enabled: !view.downloading && !view.flashing && m1device.connected
                             onClicked: {
                                 var asset = view.pickFirmwareAsset()
@@ -653,6 +844,19 @@ Item {
                                 view.downloading = true
                                 view.downloadedFilePath = ""
                                 githubChecker.downloadAsset(asset.downloadUrl, asset.name)
+                            }
+                        }
+
+                        // Save a copy of a downloaded release (release source only)
+                        Button {
+                            text: "Save a copy…"
+                            flat: true
+                            font.pixelSize: 12
+                            visible: view.srcMode === "release" && view.downloadedFilePath.length > 0 && !view.downloading
+                            onClicked: {
+                                var f = uiSettings.dialogFolder("firmwareSave")
+                                if (f != "") saveDialog.currentFolder = f
+                                saveDialog.open()
                             }
                         }
                     }
@@ -730,6 +934,34 @@ Item {
             // Bottom spacer
             Item { Layout.preferredHeight: 24 }
         }
+        }   // inner ScrollView
+
+        // ── Help links — LOCKED to the bottom ──
+        Flow {
+            Layout.fillWidth: true
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.topMargin: 6
+            Layout.bottomMargin: 12
+            spacing: 26
+
+            Label {
+                text: "<a href='bank'>What's a flash bank?</a>"
+                textFormat: Text.RichText
+                font.pixelSize: 15
+                linkColor: "#8FCBFF"; font.bold: true
+                onLinkActivated: bankInfoDialog.open()
+                MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
+            }
+            Label {
+                text: "<a href='faq'>Troubleshooting</a>"
+                textFormat: Text.RichText
+                font.pixelSize: 15
+                linkColor: "#8FCBFF"; font.bold: true
+                onLinkActivated: updateFaqDialog.open()
+                MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.PointingHandCursor }
+            }
+        }
     }
 
     // ── File dialogs + confirm ──
@@ -744,6 +976,8 @@ Item {
         onAccepted: {
             uiSettings.setDialogFolder("firmwareOpen", currentFolder)
             var path = selectedFile.toString().replace(root.filePathFilter, "")
+            view.srcMode = "file"
+            view.releaseInfo = null
             view.selectedFilePath = path
             view.selectedFileName = view.basename(path)
             flashStatusLabel.color = Material.foreground

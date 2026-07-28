@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import "../components"
 
 Item {
     id: view
@@ -16,6 +17,33 @@ Item {
     property var releaseInfo: null
     property int flashTargetIndex: 0  // 0=inactive, 1=bank1, 2=bank2
     property bool flashAfterDownload: false  // set by "Download and Flash"
+
+    // Guided Install: one-click "check → download → flash latest M1 core", and on
+    // success flag that the ESP firmware still needs installing (persisted, so the
+    // "Finish setup" prompt survives the reboot into the freshly-flashed M1).
+    property bool guidedFlash: false
+    property bool guidedAwaitRelease: false
+
+    function startFlashLatest() {
+        var asset = pickFirmwareAsset()
+        if (!asset) { releaseNotesDialog.open(); return }
+        view.flashAfterDownload = true
+        view.downloading = true
+        view.downloadedFilePath = ""
+        githubChecker.downloadAsset(asset.downloadUrl, asset.name)
+    }
+
+    function doGuidedInstall() {
+        view.guidedFlash = true
+        ghStatusLabel.visible = false
+        if (view.releaseInfo) {
+            startFlashLatest()
+        } else {
+            // Fetch the latest release first, then auto-continue in onReleaseFound.
+            view.guidedAwaitRelease = true
+            githubChecker.checkForUpdates(0, 0, 0, 0, 0)
+        }
+    }
 
     function flashTargetValue() {
         switch (flashTargetIndex) {
@@ -63,11 +91,17 @@ Item {
     Connections {
         target: dfuFlasher
         function onFlashComplete() {
+            // Guided install succeeded → flag that the ESP still needs flashing.
+            if (view.guidedFlash) {
+                uiSettings.guidedEspPending = true
+                view.guidedFlash = false
+            }
             flashStatusLabel.text = "Flash complete! Hold Right + Back to reboot into the new firmware."
             flashStatusLabel.color = "#4CAF50"
             rebootDialog.open()
         }
         function onFlashError(message) {
+            view.guidedFlash = false
             flashStatusLabel.text = message
             flashStatusLabel.color = "#F44336"
         }
@@ -87,11 +121,18 @@ Item {
         enabled: view.isActive
         function onReleaseFound(info) {
             view.releaseInfo = info
+            // Guided install waiting on the release → continue straight to download+flash.
+            if (view.guidedAwaitRelease) {
+                view.guidedAwaitRelease = false
+                view.startFlashLatest()
+            }
         }
         function onNoUpdateAvailable(message) {
             // On this screen the check runs with version 0, so any real release is
             // "newer" and fires onReleaseFound. This branch means the selected repo
             // has no published release at all.
+            view.guidedAwaitRelease = false
+            view.guidedFlash = false
             ghStatusLabel.text = "No firmware release found on " + githubChecker.repoUrl +
                                  ". This repo may not publish releases — download the .bin " +
                                  "from its Releases page, then use 'Browse this PC' above."
@@ -99,6 +140,8 @@ Item {
             ghStatusLabel.visible = true
         }
         function onCheckError(message) {
+            view.guidedAwaitRelease = false
+            view.guidedFlash = false
             ghStatusLabel.text = "GitHub error: " + message
             ghStatusLabel.color = "#F44336"
             ghStatusLabel.visible = true
@@ -125,6 +168,16 @@ Item {
                 }
             }
         }
+    }
+
+    // Modal "flashing in progress" overlay — unmissable at any window size + blocks a second action.
+    FlashProgressDialog {
+        visible: dfuFlasher.flashing
+        statusText: dfuFlasher.statusMessage
+        percent: dfuFlasher.progress
+        cancelText: "Cancel Flash"
+        cancelAlways: true
+        onCancelRequested: dfuFlasher.cancel()
     }
 
     // ── "What is DFU?" explainer popup ──
@@ -513,6 +566,16 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 500
             }
+            Label {
+                visible: uiSettings.guidedEspPending
+                text: "Setup isn't finished yet — after the M1 reboots and reconnects, qMonstatek will " +
+                      "prompt you to install the matching ESP firmware to complete the guided install."
+                font.pixelSize: 13
+                color: "#C9A227"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                Layout.preferredWidth: 500
+            }
             Image {
                 source: "qrc:/images/reboot_device.png"
                 fillMode: Image.PreserveAspectFit
@@ -652,7 +715,7 @@ Item {
                 Layout.topMargin: 8
                 Layout.leftMargin: 24
                 Layout.rightMargin: 24
-                color: "white"
+                color: Material.foreground
                 font.pixelSize: 15
             }
 
@@ -998,18 +1061,32 @@ Item {
                         }
 
                         Button {
-                            text: view.downloading ? "Downloading…" : "Download and Flash Latest"
+                            text: view.downloading && !view.guidedFlash ? "Downloading…" : "Download and Flash Latest"
                             visible: view.releaseInfo !== null
                             enabled: !view.downloading && !dfuFlasher.flashing
-                            onClicked: {
-                                var asset = view.pickFirmwareAsset()
-                                if (!asset) { releaseNotesDialog.open(); return }
-                                view.flashAfterDownload = true
-                                view.downloading = true
-                                view.downloadedFilePath = ""
-                                githubChecker.downloadAsset(asset.downloadUrl, asset.name)
-                            }
+                            onClicked: view.startFlashLatest()
                         }
+
+                        Item { Layout.fillWidth: true }
+
+                        // One-click guided path for a fresh device: fetch + flash the
+                        // latest M1 core, then guide the user to install the ESP.
+                        Button {
+                            text: (view.guidedFlash || view.guidedAwaitRelease) ? "Setting up…" : "Guided Install"
+                            Material.background: "#4CAF50"
+                            Material.foreground: "white"
+                            enabled: dfuFlasher.dfuDeviceFound && !dfuFlasher.flashing && !view.downloading
+                            onClicked: view.doGuidedInstall()
+                        }
+                    }
+
+                    Label {
+                        text: "New here? Guided Install downloads and flashes the latest M1 firmware, then " +
+                              "walks you through installing the matching ESP firmware after it reboots."
+                        font.pixelSize: 12
+                        color: Material.hintTextColor
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
 
                     ProgressBar {
@@ -1243,12 +1320,12 @@ Item {
         }
     }
 
-    // ── Start/stop scanning when view becomes active/inactive ──
+    // ── Start scanning when this view is active ──
+    // Stopping is owned by main.qml (it stops when a normal device connects), so
+    // leaving this screen while still disconnected keeps DFU detection alive for the
+    // welcome-screen "Setup M1" prompt.
     onIsActiveChanged: {
-        if (isActive) {
+        if (isActive)
             dfuFlasher.startScanning()
-        } else {
-            dfuFlasher.stopScanning()
-        }
     }
 }

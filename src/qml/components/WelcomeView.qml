@@ -11,6 +11,7 @@ import QtQuick.Layouts
 Item {
     id: welcome
     signal connectRequested()
+    signal setupRequested()   // DFU device detected → guided setup (main.qml → DFU Flash)
 
     // subtle accent glow behind the hero
     Rectangle {
@@ -115,6 +116,37 @@ Item {
                 wrapMode: Text.WordWrap
                 Layout.alignment: Qt.AlignHCenter
                 Layout.maximumWidth: 520
+            }
+
+            // ── DFU device detected → guided setup entry ──
+            // A device sitting in DFU mode (no normal connection) usually means a
+            // fresh/blank M1 waiting to be set up. Surface a one-tap path to it.
+            Pane {
+                visible: !m1device.connected && dfuFlasher.dfuDeviceFound
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 6
+                Material.elevation: 2
+                Material.background: Material.theme === Material.Dark ? "#3A3411" : "#FFF8E1"
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 6
+                    Label {
+                        text: "STM32 DFU device detected"
+                        font.pixelSize: 14; font.bold: true; color: "#C9A227"
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                    Label {
+                        text: "Looks like a fresh M1 ready to set up."
+                        font.pixelSize: 12; color: Material.hintTextColor
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                    Button {
+                        text: "Setup M1"
+                        highlighted: true
+                        Layout.alignment: Qt.AlignHCenter
+                        onClicked: welcome.setupRequested()
+                    }
+                }
             }
 
             // ── Connect action / connecting state ──

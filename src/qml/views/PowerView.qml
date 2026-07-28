@@ -80,7 +80,7 @@ Item {
                             Label {
                                 text: "Shutdown"
                                 font.pixelSize: 14
-                                color: "white"
+                                color: Material.foreground
                             }
                         }
                     }

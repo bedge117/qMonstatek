@@ -21,12 +21,15 @@ qt_add_qml_module(qmonstatek
         qml/components/VirtualButtonPad.qml
         qml/components/MonoDisplay.qml
         qml/components/M1DeviceSkin.qml
+        qml/components/FlashProgressDialog.qml
         qml/components/WelcomeView.qml
+        qml/components/GuidedEspSetup.qml
         qml/views/DeviceInfoView.qml
         qml/views/ScreenMirrorView.qml
         qml/views/FileManagerView.qml
         qml/views/FirmwareUpdateView.qml
         qml/views/Esp32UpdateView.qml
+        qml/views/UpdateAllView.qml
         qml/views/DualBootView.qml
         qml/views/FactoryRestoreView.qml
         qml/views/DebugTerminalView.qml

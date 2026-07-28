@@ -204,6 +204,21 @@ bool SelfUpdater::launchInstallerAndQuit(const QString &path)
         targetPath = dir.absoluteFilePath(exes.first());
     }
 
+    // Deterministically clear the Mark-of-the-Web (Zone.Identifier ADS) on the
+    // installer before launching, so SmartScreen doesn't flag it as "downloaded
+    // from the internet". This covers both the zip-extracted exe and the raw
+    // *_setup.exe fallback, and doesn't rely on Expand-Archive's incidental MOTW
+    // behavior (which varies across Windows/PowerShell versions). Best-effort:
+    // an unsigned installer can still show a first-run prompt (that needs a code-
+    // signing cert), but this removes the download-zone block.
+    {
+        QProcess unblock;
+        unblock.start("powershell.exe", QStringList()
+            << "-NoProfile" << "-Command"
+            << QString("Unblock-File -LiteralPath '%1'").arg(targetPath));
+        unblock.waitForFinished(10000);
+    }
+
     qInfo() << "SelfUpdater: launching installer" << targetPath;
     bool ok = QProcess::startDetached(targetPath, {});
     if (!ok) {

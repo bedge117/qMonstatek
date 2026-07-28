@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import "../components"
 
 Item {
     id: view
@@ -112,6 +113,16 @@ Item {
     }
 
     // ===================== Popups =====================
+
+    // Modal "operation in progress" overlay — unmissable at any window size + blocks a second action.
+    FlashProgressDialog {
+        visible: swdRecovery.running
+        statusText: swdRecovery.statusMessage
+        percent: swdRecovery.progress
+        cancelText: "Cancel"
+        cancelAlways: true
+        onCancelRequested: swdRecovery.cancel()
+    }
 
     // ── "What is SWD?" explainer ──
     Dialog {
@@ -495,7 +506,7 @@ Item {
                 Layout.topMargin: 8
                 Layout.leftMargin: 24
                 Layout.rightMargin: 24
-                color: "white"
+                color: Material.foreground
                 font.pixelSize: 15
             }
 

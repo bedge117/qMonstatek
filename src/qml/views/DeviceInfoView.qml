@@ -13,6 +13,13 @@ ScrollView {
     signal navDown()
     signal navSelect()
     signal navBack()
+    // Incompatible-firmware CTA (wired in main.qml → DFU Flash)
+    signal goDfu()
+    // Install/repair ESP firmware CTA (wired in main.qml → ESP32 Update tab)
+    signal goEspUpdate()
+    // Whether the ESP is actually talking (compatible brain firmware), vs merely
+    // detected on the shared lines. Injected from main.qml.
+    property bool espBrainRunning: false
 
     ColumnLayout {
         width: view.width
@@ -42,6 +49,13 @@ ScrollView {
             wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
             Layout.fillWidth: true; Layout.leftMargin: 24; Layout.rightMargin: 24
         }
+        Button {
+            visible: m1device.connected && !m1device.hasDeviceInfo
+            text: "Go to DFU Flash"
+            highlighted: true
+            Layout.alignment: Qt.AlignHCenter
+            onClicked: view.goDfu()
+        }
 
         // ── Floating WiFi (ESP32) indicator ──
         Item {
@@ -53,7 +67,7 @@ ScrollView {
             Canvas {
                 id: wifiCanvas
                 anchors.fill: parent
-                property bool active: m1device.esp32Ready
+                property bool active: view.espBrainRunning
                 onActiveChanged: requestPaint()
                 onPaint: {
                     var ctx = getContext("2d")
@@ -92,16 +106,22 @@ ScrollView {
             spacing: 2
 
             Label {
-                text: m1device.esp32Ready
+                text: view.espBrainRunning
                       ? "ESP32 ready — " + m1device.esp32Version
-                      : "ESP32 coprocessor offline"
+                      : (m1device.esp32Ready
+                         ? "ESP32 detected — incompatible firmware"
+                         : "ESP32 coprocessor offline")
                 font.pixelSize: 12
-                color: m1device.esp32Ready ? "#4CAF50" : "#F44336"
+                color: view.espBrainRunning ? "#4CAF50"
+                       : (m1device.esp32Ready ? "#FF9800" : "#F44336")
                 Layout.alignment: Qt.AlignHCenter
             }
+            // Incompatible (seen but wrong firmware — e.g. still stock/hosted): the
+            // radios are wired but it can't speak the C3 protocol. Guide to a flash.
             Label {
-                visible: m1device.hasDeviceInfo && !m1device.esp32Ready
-                text: "May be running firmware for a different M1 build — see ESP32 Update"
+                visible: m1device.hasDeviceInfo && m1device.esp32Ready && !view.espBrainRunning
+                text: "The ESP is detected but running firmware this M1 build can't talk to " +
+                      "(a reboot won't fix it). Install the matching ESP firmware to enable WiFi/BLE."
                 font.pixelSize: 11
                 color: Material.hintTextColor
                 horizontalAlignment: Text.AlignHCenter
@@ -109,9 +129,102 @@ ScrollView {
                 Layout.maximumWidth: 360
                 Layout.alignment: Qt.AlignHCenter
             }
+            // Offline (not detected at all): a reboot/replug or Initialize usually clears it.
+            Label {
+                visible: m1device.hasDeviceInfo && !m1device.esp32Ready
+                text: "Press Initialize or Refresh below — a reboot or replug usually clears it too. " +
+                      "If it stays offline, flash the matching build on the ESP32 Update tab."
+                font.pixelSize: 11
+                color: Material.hintTextColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                Layout.maximumWidth: 360
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            // Right-here recovery, so the user doesn't have to hunt for the ESP32 tab.
+            RowLayout {
+                visible: m1device.connected && !view.espBrainRunning
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 6
+                spacing: 10
+
+                // Offline → try to (re)initialize on the spot.
+                Button {
+                    text: "Initialize ESP"
+                    visible: !m1device.esp32Ready
+                    enabled: m1device.connected
+                    onClicked: m1device.initEsp32()
+                }
+                // Detected-but-incompatible → the fix is a flash, not an init.
+                Button {
+                    text: "Install ESP firmware"
+                    visible: m1device.esp32Ready
+                    highlighted: true
+                    enabled: m1device.connected
+                    onClicked: view.goEspUpdate()
+                }
+                Button {
+                    text: "Refresh"
+                    enabled: m1device.connected
+                    onClicked: { m1device.requestDeviceInfo(); m1device.requestEspInfo() }
+                }
+            }
         }
 
-        // ── The M1, showing its own status on-screen (scales with the window) ──
+        // ── Screen-share controls: live-mirror the real screen on the graphic below.
+        //    Start Stream flips the device graphic from the info readout to the live
+        //    screen, and its buttons drive the real M1 (same as the old Screen Mirror). ──
+        RowLayout {
+            visible: m1device.connected
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 4
+            spacing: 12
+
+            Label { text: "FPS:"; Layout.alignment: Qt.AlignVCenter }
+            SpinBox {
+                id: fpsSpinner
+                from: 1; to: 15; value: 10
+                editable: true
+            }
+            Button {
+                text: m1device.screenStreaming ? "Stop Stream" : "Start Stream"
+                enabled: m1device.connected
+                highlighted: m1device.screenStreaming
+                onClicked: {
+                    if (m1device.screenStreaming)
+                        m1device.stopScreenStream()
+                    else
+                        m1device.startScreenStream(fpsSpinner.value)
+                }
+            }
+            Button {
+                text: "Screenshot"
+                enabled: m1device.connected
+                onClicked: {
+                    var path = "screenshot_" + Date.now() + ".png"
+                    if (m1device.saveScreenshot(path)) {
+                        screenshotLabel.text = "Saved: " + path
+                        screenshotLabel.visible = true
+                    }
+                }
+            }
+        }
+        Label {
+            id: screenshotLabel
+            visible: false
+            color: Material.accent
+            font.pixelSize: 12
+            Layout.alignment: Qt.AlignHCenter
+            Timer {
+                running: screenshotLabel.visible
+                interval: 3000
+                onTriggered: screenshotLabel.visible = false
+            }
+        }
+
+        // ── The M1: shows its own status on-screen, OR the live mirror while
+        //    streaming (scales with the window) ──
         Item {
             visible: m1device.connected
             Layout.alignment: Qt.AlignHCenter
@@ -122,12 +235,15 @@ ScrollView {
 
             M1DeviceSkin {
                 anchors.centerIn: parent
-                infoMode: true
-                sendToDevice: false          // buttons drive the app menu, not the device
+                // Streaming → live mirror + buttons drive the real device.
+                // Not streaming → static info readout + buttons drive the app menu.
+                infoMode: !m1device.screenStreaming
+                sendToDevice: m1device.screenStreaming
                 caseTheme: uiSettings.caseColor
                 scale: parent.fit
                 transformOrigin: Item.Center
                 onButtonPressed: function(id) {
+                    if (m1device.screenStreaming) return   // press() already forwarded to the device
                     if (id === 1)      view.navUp()      // Up
                     else if (id === 4) view.navDown()    // Down
                     else if (id === 0) view.navSelect()  // OK

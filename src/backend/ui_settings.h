@@ -15,12 +15,17 @@
  */
 class UiSettings : public QObject {
     Q_OBJECT
-    /* App theme: "dark" (default) or "light". Persisted across runs. */
+    /* App theme: "dark" (default), "light", "chrome" (silvery light), or
+     * "hacker" (black background, green text). Persisted across runs. */
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
     /* M1 device-skin case color: white/black/clear/orange/green. Persisted. */
     Q_PROPERTY(QString caseColor READ caseColor WRITE setCaseColor NOTIFY caseColorChanged)
     /* App accent style: green (default) / magenta / indigo / amber / cyan. Persisted. */
     Q_PROPERTY(QString accent READ accent WRITE setAccent NOTIFY accentChanged)
+    /* Guided-setup flag: set when a DFU "Guided Install" flashes the M1 core; stays
+     * set (across runs) until the matching ESP firmware is installed. Drives the
+     * "Finish setup — install ESP firmware" prompt. */
+    Q_PROPERTY(bool guidedEspPending READ guidedEspPending WRITE setGuidedEspPending NOTIFY guidedEspPendingChanged)
 public:
     explicit UiSettings(QObject *parent = nullptr) : QObject(parent) {}
 
@@ -37,8 +42,12 @@ public:
     QString accent() const;
     void setAccent(const QString &a);
 
+    bool guidedEspPending() const;
+    void setGuidedEspPending(bool v);
+
 signals:
     void themeChanged();
     void caseColorChanged();
     void accentChanged();
+    void guidedEspPendingChanged();
 };

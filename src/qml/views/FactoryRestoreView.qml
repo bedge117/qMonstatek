@@ -341,6 +341,17 @@ ScrollView {
     }
 
     // ===================== Dialogs =====================
+
+    // Modal "flashing in progress" overlay — unmissable at any window size + blocks a second action.
+    FlashProgressDialog {
+        visible: view.busy
+        statusText: view.statusMsg
+        percent: view.pct
+        stalled: view.stalled
+        cancelText: "Cancel and reboot, then try again"
+        onCancelRequested: view.rebootDevice()
+    }
+
     Dialog {
         id: confirmStage1
         title: "Start Factory Restore"

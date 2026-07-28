@@ -92,7 +92,8 @@ int main(int argc, char *argv[])
     GithubChecker appUpdateChecker;
     appUpdateChecker.setRepoUrl("bedge117/qMonstatek");
     GithubChecker esp32Checker;
-    esp32Checker.setRepoUrl("bedge117/m1-esp32-brain");
+    esp32Checker.setRepoUrl("bedge117/m1-esp32-brain");   // default before persist load
+    esp32Checker.setPersistKey("firmware/espRepoUrl");    // user-selectable in Settings
     SelfUpdater selfUpdater;
     DfuFlasher dfuFlasher;
     SwdRecovery swdRecovery;

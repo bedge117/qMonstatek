@@ -62,3 +62,18 @@ void UiSettings::setAccent(const QString &a)
     s.setValue(QStringLiteral("appearance/accent"), a);
     emit accentChanged();
 }
+
+bool UiSettings::guidedEspPending() const
+{
+    QSettings s;
+    return s.value(QStringLiteral("setup/guidedEspPending"), false).toBool();
+}
+
+void UiSettings::setGuidedEspPending(bool v)
+{
+    if (v == guidedEspPending())
+        return;
+    QSettings s;
+    s.setValue(QStringLiteral("setup/guidedEspPending"), v);
+    emit guidedEspPendingChanged();
+}
