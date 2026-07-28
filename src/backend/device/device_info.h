@@ -48,6 +48,9 @@ struct DeviceInfo {
     // Firmware variant: 0 = normal working FW, 1 = Recovery, 2 = Restore Host
     uint8_t  fwVariant = 0;
 
+    // True if a mobile app is currently connected to the M1 over WiFi.
+    bool     linkActive = false;
+
     // True if we received valid device info via RPC
     bool hasDeviceInfo() const {
         return fwMajor != 0 || fwMinor != 0 || fwBuild != 0 || fwRC != 0;

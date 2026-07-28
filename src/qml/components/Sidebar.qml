@@ -64,6 +64,10 @@ Rectangle {
     readonly property bool workingFwRecognized: showCompatibleItems && !isRecoveryFw
 
     readonly property var menuItems: [
+        // Shown only when there's no usable device (disconnected or incompatible FW),
+        // so the connect/instructions screen is always reachable again after the
+        // user navigates away to Settings/About/etc.
+        { name: "connect",        label: "Connect Device",  icon: "🔌", section: "",         requires: "noDevice" },
         { name: "deviceInfo",     label: "Device Info",     icon: "ℹ",  section: "",         requires: "compatible" },
         // Screen Mirror folded into Device Info (Start Stream there). View kept at
         // contentStack index 1 (unlinked) so it's trivially restorable.
@@ -82,6 +86,9 @@ Rectangle {
     function isItemVisible(item) {
         if (item.requires === "compatible") return showCompatibleItems
         if (item.requires === "recovery")   return !workingFwRecognized
+        // "noDevice": no working device is readable — disconnected, or connected
+        // but running firmware qM can't talk to (the Incompatible case).
+        if (item.requires === "noDevice")   return !showCompatibleItems
         return true
     }
 

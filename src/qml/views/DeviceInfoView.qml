@@ -129,6 +129,22 @@ ScrollView {
                 Layout.maximumWidth: 360
                 Layout.alignment: Qt.AlignHCenter
             }
+            // Mobile session: this M1 is also connected to the phone app over WiFi.
+            // Informational only — thanks to per-transport response routing the USB
+            // link works normally alongside it.
+            Label {
+                // Only when THIS desktop is on USB — otherwise the desktop itself
+                // is the WiFi/TCP client, so link_active just describes our own
+                // connection, not a separate mobile app.
+                visible: m1device.connected && m1device.mobileLinkActive
+                         && m1device.connectionType === "USB"
+                text: "📱  Also connected to the mobile app over WiFi"
+                font.pixelSize: 11
+                color: "#4CAF50"
+                horizontalAlignment: Text.AlignHCenter
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 2
+            }
             // Offline (not detected at all): a reboot/replug or Initialize usually clears it.
             Label {
                 visible: m1device.hasDeviceInfo && !m1device.esp32Ready

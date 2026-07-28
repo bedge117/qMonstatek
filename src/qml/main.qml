@@ -454,6 +454,12 @@ ApplicationWindow {
             case "settings":        return 9
             case "power":           return 10
             case "about":           return 11
+            case "welcome":         return 12
+            case "incompatible":    return 13
+            // Single sidebar entry that lands on the right "no usable device"
+            // screen: the incompatible-FW screen if a device is attached, else
+            // the connect/welcome screen with setup instructions.
+            case "connect":         return m1device.connected ? 13 : 12
             case "factoryRestore":  return 14
             case "updateAll":       return 15
             default:                return 0

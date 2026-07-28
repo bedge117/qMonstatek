@@ -1190,6 +1190,11 @@ void M1Device::handleDeviceInfoResp(const rpc::Frame &frame)
     constexpr int FW_VARIANT_SIZE = offsetof(rpc::DeviceInfoPayload, fw_variant) + 1;
     m_deviceInfo.fwVariant = (frame.payload.size() >= FW_VARIANT_SIZE) ? info->fw_variant : 0;
 
+    // Mobile/WiFi session flag (appended after fw_variant). Older firmware that
+    // doesn't send it reads as "no mobile session".
+    constexpr int LINK_ACTIVE_SIZE = offsetof(rpc::DeviceInfoPayload, link_active) + 1;
+    m_deviceInfo.linkActive = (frame.payload.size() >= LINK_ACTIVE_SIZE) && (info->link_active != 0);
+
     emit deviceInfoUpdated();
 }
 
@@ -1349,7 +1354,10 @@ void M1Device::handleFileReadData(const rpc::Frame &frame)
 
 void M1Device::handleAck(const rpc::Frame & /*frame*/)
 {
-    qDebug() << "RPC ACK received";
+    // NOTE: no blanket "RPC ACK received" log here — an ACK is the normal reply to
+    // every button press / screen start-stop / GPIO write / file op / set-log-level,
+    // so logging each one floods the Debug Terminal with thousands of lines. The
+    // meaningful ACKs (bank erase/swap, below) are logged where they matter.
 
     // Bank erase ACK — inactive bank has been wiped
     if (m_bankErasePending) {

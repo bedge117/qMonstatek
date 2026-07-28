@@ -151,6 +151,10 @@ struct DeviceInfoPayload {
 
     // Firmware variant (appended): 0 = normal, 1 = Recovery, 2 = Restore Host
     uint8_t  fw_variant;
+
+    // Mobile/WiFi session flag (appended): 1 = a mobile app is currently
+    // connected to the M1 over WiFi/TCP.
+    uint8_t  link_active;
 };
 #pragma pack(pop)
 

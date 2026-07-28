@@ -48,6 +48,7 @@ class M1Device : public QObject {
     Q_PROPERTY(int fwRC READ fwRC NOTIFY deviceInfoUpdated)
     Q_PROPERTY(int c3Revision READ c3Revision NOTIFY deviceInfoUpdated)
     Q_PROPERTY(int fwVariant READ fwVariant NOTIFY deviceInfoUpdated)
+    Q_PROPERTY(bool mobileLinkActive READ mobileLinkActive NOTIFY deviceInfoUpdated)
     Q_PROPERTY(bool isRestoreHost READ isRestoreHost NOTIFY deviceInfoUpdated)
     Q_PROPERTY(bool hasDeviceInfo READ hasDeviceInfo NOTIFY deviceInfoUpdated)
     Q_PROPERTY(int activeBank READ activeBank NOTIFY deviceInfoUpdated)
@@ -113,6 +114,7 @@ public:
     int c3Revision() const { return m_deviceInfo.c3Revision; }
     int fwVariant() const { return m_deviceInfo.fwVariant; }
     bool isRestoreHost() const { return m_deviceInfo.fwVariant == 2; }
+    bool mobileLinkActive() const { return m_deviceInfo.linkActive; }
     bool hasDeviceInfo() const { return m_deviceInfo.hasDeviceInfo(); }
     int activeBank() const { return m_deviceInfo.bankNumber(); }
     bool sdCardPresent() const { return m_deviceInfo.sdCardPresent; }
