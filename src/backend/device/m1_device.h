@@ -241,6 +241,7 @@ private slots:
     void tryWifiReconnect();
 
 private:
+    void trySerialReconnect();
     void sendCommand(uint8_t cmd, const QByteArray &payload = {});
     void handleDeviceInfoResp(const rpc::Frame &frame);
     void handleScreenFrame(const rpc::Frame &frame);
@@ -256,6 +257,11 @@ private:
 
     /** Post-connect handshake (ping, device info, keepalive). */
     void startSession();
+    /** Keep PING traffic out of an exclusive file/firmware transaction. */
+    void suspendKeepalive();
+    void resumeKeepaliveIfIdle();
+    /** Retry an open CDC port after a device-side liveness failure. */
+    void scheduleSerialReconnect(const QString &portName, int delayMs);
 
     /* Transports — serial is always available, WiFi created on demand */
     AbstractTransport *m_transport = nullptr;
@@ -287,9 +293,14 @@ private:
     bool     m_autoConnect = true;
     bool     m_userDisconnecting = false;
     QTimer   m_pingTimer;
+    bool     m_keepaliveSuspended = false;
     qint64   m_lastPingTime = 0;
     int      m_missedPongs = 0;
     qint64   m_lastInboundMs = 0;   // last inbound byte/frame time (liveness, §3)
+
+    QTimer   m_serialReconnectTimer;
+    QString  m_serialReconnectPort;
+    int      m_serialReconnectAttempts = 0;
 
     /* Latest finished (upscaled) screen frame — pushed to QML and used by
      * screenshot save. Decoded on the worker thread for WiFi, on the GUI

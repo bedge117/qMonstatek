@@ -80,9 +80,20 @@ void SerialTransport::close()
 qint64 SerialTransport::send(const QByteArray &data)
 {
     if (!m_port.isOpen()) {
+        qWarning() << "Serial write rejected: port is closed";
         return -1;
     }
-    return m_port.write(data);
+
+    const qint64 queued = m_port.write(data);
+    if (queued != data.size()) {
+        const QString msg = QString("Serial write queued %1 of %2 bytes: %3")
+                                .arg(queued)
+                                .arg(data.size())
+                                .arg(m_port.errorString());
+        qWarning() << msg;
+        emit errorOccurred(msg);
+    }
+    return queued;
 }
 
 bool SerialTransport::isConnected() const

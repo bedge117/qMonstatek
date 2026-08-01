@@ -22,6 +22,7 @@
 
 // Max consecutive WiFi TCP auto-reconnect attempts before giving up (§7).
 static constexpr int WIFI_RECONNECT_MAX = 8;
+static constexpr int SERIAL_RECONNECT_MAX = 12;
 
 M1Device::M1Device(QObject *parent)
     : QObject(parent)
@@ -52,23 +53,24 @@ M1Device::M1Device(QObject *parent)
     connect(&m_discovery, &DeviceDiscovery::deviceLost,
             this, &M1Device::onDeviceLost);
 
-    // Periodic ping for connection health (COMMS_REBUILD_SPEC §3):
-    //   ping every 3s; declare the WiFi link dead ONLY when there have been no
-    //   inbound bytes for 20s OR 6 consecutive missed PONGs.
+    // An open COM handle only proves that Windows owns the device node.  Keep
+    // an RPC-level health check so a wedged CDC endpoint is recovered too.
     connect(&m_pingTimer, &QTimer::timeout, this, [this]() {
-        if (!isConnected())
+        if (!isConnected() || m_keepaliveSuspended)
             return;
 
         const bool wifi = m_transport && m_transport->transportName() == "WiFi";
-        if (wifi) {
+        const bool usb = m_transport && m_transport->transportName() == "USB";
+        if (wifi || usb) {
             m_missedPongs++;
             const qint64 idle = QDateTime::currentMSecsSinceEpoch() - m_lastInboundMs;
             if (m_missedPongs >= 6 || idle > 20000) {
-                qWarning() << "WiFi link dead (missedPongs=" << m_missedPongs
+                qWarning() << (usb ? "USB" : "WiFi")
+                           << "link unresponsive (missedPongs=" << m_missedPongs
                            << " idleMs=" << idle << ") — disconnecting";
                 if (m_screenStreaming)
                     stopScreenStream();
-                // Clean TCP close sends FIN → ESP32 sends CLOSED → M1 clears s_route_tcp
+                // A close drives the existing transport-specific reconnect path.
                 m_transport->close();
                 return;
             }
@@ -90,6 +92,10 @@ M1Device::M1Device(QObject *parent)
     connect(&m_wifiReconnectTimer, &QTimer::timeout,
             this, &M1Device::tryWifiReconnect);
 
+    m_serialReconnectTimer.setSingleShot(true);
+    connect(&m_serialReconnectTimer, &QTimer::timeout,
+            this, &M1Device::trySerialReconnect);
+
     // FW update timeout (15s for START which includes bank erase, 10s for data/finish)
     m_fwUpdateTimeout.setSingleShot(true);
     connect(&m_fwUpdateTimeout, &QTimer::timeout, this, [this]() {
@@ -104,6 +110,7 @@ M1Device::M1Device(QObject *parent)
             qWarning() << "FW update timeout during" << state;
             m_fwUpdateState = FwUpdateState::Idle;
             m_fwUpdateData.clear();
+            resumeKeepaliveIfIdle();
 
             // If we never got valid device info, the firmware likely doesn't
             // support RPC (e.g. stock Monstatek firmware).
@@ -138,7 +145,7 @@ M1Device::M1Device(QObject *parent)
             m_espUpdateState = EspUpdateState::Idle;
             m_espUpdateData.clear();
             m_espUpdateStaleNack = true;  // M1 may still send a late NACK/ACK — absorb it
-            m_pingTimer.start(3000);
+            resumeKeepaliveIfIdle();
 
             emit espUpdateError("Timeout waiting for device response during " + state +
                                 ".\nClose qMonstatek, reboot the M1, then reopen qMonstatek and try again.");
@@ -152,6 +159,7 @@ M1Device::M1Device(QObject *parent)
             qWarning() << "File upload timeout";
             m_fileUploadState = FileUploadState::Idle;
             m_fileUploadData.clear();
+            resumeKeepaliveIfIdle();
             emit fileOperationError("Upload timed out waiting for device response");
         }
     });
@@ -172,12 +180,18 @@ bool M1Device::connectToDevice(const QString &portName)
         return false;
     }
 
+    m_serialReconnectTimer.stop();
+    m_serialReconnectPort.clear();
+    m_serialReconnectAttempts = 0;
     startSession();
     return true;
 }
 
 bool M1Device::connectToDeviceWifi(const QString &hostPort)
 {
+    m_serialReconnectTimer.stop();
+    m_serialReconnectPort.clear();
+    m_serialReconnectAttempts = 0;
     // Create the threaded WiFi transport (or reuse existing)
     if (!m_wifiTransport) {
         m_wifiTransport = new WifiTransport(this);
@@ -211,7 +225,11 @@ bool M1Device::connectToDeviceWifi(const QString &hostPort)
 
 void M1Device::disconnect()
 {
+    m_keepaliveSuspended = false;
     m_pingTimer.stop();
+    m_serialReconnectTimer.stop();
+    m_serialReconnectPort.clear();
+    m_serialReconnectAttempts = 0;
     m_wifiReconnectTimer.stop();
     m_wifiWasConnected = false;
     m_wifiReconnectAttempts = 0;
@@ -323,6 +341,7 @@ void M1Device::setTransport(AbstractTransport *transport)
 void M1Device::startSession()
 {
     m_codec.reset();
+    m_keepaliveSuspended = false;
     m_missedPongs = 0;
     m_lastInboundMs = QDateTime::currentMSecsSinceEpoch();
     // Fresh CRC-dialect handshake: assume correct until a validated reply proves
@@ -338,6 +357,32 @@ void M1Device::startSession()
     }
     QTimer::singleShot(100, this, &M1Device::requestDeviceInfo);
     m_pingTimer.start(3000);
+}
+
+void M1Device::suspendKeepalive()
+{
+    if (m_keepaliveSuspended)
+        return;
+
+    m_keepaliveSuspended = true;
+    m_pingTimer.stop();
+}
+
+void M1Device::resumeKeepaliveIfIdle()
+{
+    if (!m_keepaliveSuspended)
+        return;
+
+    if (m_fileUploadState != FileUploadState::Idle
+        || m_fwUpdateState != FwUpdateState::Idle
+        || m_espUpdateState != EspUpdateState::Idle
+        || m_bankErasePending) {
+        return;
+    }
+
+    m_keepaliveSuspended = false;
+    if (isConnected())
+        m_pingTimer.start(3000);
 }
 
 /* ──────────── Device Info ──────────── */
@@ -462,6 +507,12 @@ void M1Device::uploadFile(const QString &localPath, const QString &remotePath)
         emit fileOperationError("Upload already in progress");
         return;
     }
+    if (m_fwUpdateState != FwUpdateState::Idle
+        || m_espUpdateState != EspUpdateState::Idle
+        || m_bankErasePending) {
+        emit fileOperationError("Cannot upload while a firmware operation is in progress");
+        return;
+    }
 
     QFile file(localPath);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -491,6 +542,7 @@ void M1Device::uploadFile(const QString &localPath, const QString &remotePath)
     payload.append('\0');
 
     m_fileUploadState = FileUploadState::WaitingStartAck;
+    suspendKeepalive();
     m_fileUploadTimeout.start(10000);
     sendCommand(rpc::CMD_FILE_WRITE_START, payload);
 
@@ -734,6 +786,12 @@ void M1Device::startFwUpdate(const QString &binFilePath)
         emit fwUpdateError("Firmware update already in progress");
         return;
     }
+    if (m_fileUploadState != FileUploadState::Idle
+        || m_espUpdateState != EspUpdateState::Idle
+        || m_bankErasePending) {
+        emit fwUpdateError("Cannot start an M1 update while another transfer is in progress");
+        return;
+    }
 
     QFile file(binFilePath);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -765,6 +823,7 @@ void M1Device::startFwUpdate(const QString &binFilePath)
 
     m_fwUpdateOffset = 0;
     m_fwUpdateState = FwUpdateState::WaitingStartAck;
+    suspendKeepalive();
     m_fwUpdateTimeout.start(15000);  // 15s for bank erase
 
     qDebug() << "FW update: starting, size =" << m_fwUpdateSize << "bytes";
@@ -808,8 +867,15 @@ void M1Device::swapBanks()
 
 void M1Device::eraseInactiveBank()
 {
+    if (m_fileUploadState != FileUploadState::Idle
+        || m_fwUpdateState != FwUpdateState::Idle
+        || m_espUpdateState != EspUpdateState::Idle
+        || m_bankErasePending) {
+        emit bankEraseError("Cannot erase a bank while another transfer is in progress");
+        return;
+    }
     m_bankErasePending = true;
-    m_pingTimer.stop();  // Erase takes ~5s; suspend pings so we don't timeout
+    suspendKeepalive();  // Erase takes ~5s; keep the RPC stream exclusive.
     sendCommand(rpc::CMD_FW_BANK_ERASE);
 }
 
@@ -863,6 +929,12 @@ void M1Device::startEspUpdate(const QString &binFilePath, uint32_t flashAddr, bo
 {
     if (m_espUpdateState != EspUpdateState::Idle) {
         emit espUpdateError("ESP32 update already in progress");
+        return;
+    }
+    if (m_fileUploadState != FileUploadState::Idle
+        || m_fwUpdateState != FwUpdateState::Idle
+        || m_bankErasePending) {
+        emit espUpdateError("Cannot start an ESP32 update while another transfer is in progress");
         return;
     }
 
@@ -954,7 +1026,7 @@ void M1Device::startEspUpdate(const QString &binFilePath, uint32_t flashAddr, bo
 
     m_espUpdateOffset = 0;
     m_espUpdateState = EspUpdateState::WaitingStartAck;
-    m_pingTimer.stop();  // user-requested: suspend pings during ESP flash
+    suspendKeepalive();
     m_espUpdateTimeout.start(120000);  // 120s — 4MB factory erase can take 60-80s on ESP32
 
     // Log file MD5 for correlation with M1's local hash — verifies USB transfer integrity
@@ -1362,7 +1434,7 @@ void M1Device::handleAck(const rpc::Frame & /*frame*/)
     // Bank erase ACK — inactive bank has been wiped
     if (m_bankErasePending) {
         m_bankErasePending = false;
-        m_pingTimer.start(3000);
+        resumeKeepaliveIfIdle();
         qDebug() << "Bank erase: ACK received, inactive bank wiped";
         emit bankEraseComplete();
         return;
@@ -1403,6 +1475,7 @@ void M1Device::handleAck(const rpc::Frame & /*frame*/)
             m_fwUpdateTimeout.stop();
             m_fwUpdateState = FwUpdateState::Idle;
             m_fwUpdateData.clear();
+            resumeKeepaliveIfIdle();
             emit fwUpdateComplete();
             return;
         default:
@@ -1429,7 +1502,7 @@ void M1Device::handleAck(const rpc::Frame & /*frame*/)
             m_espUpdateTimeout.stop();
             m_espUpdateState = EspUpdateState::Idle;
             m_espUpdateData.clear();
-            m_pingTimer.start(3000);
+            resumeKeepaliveIfIdle();
             emit espUpdateComplete();
             return;
         default:
@@ -1458,6 +1531,7 @@ void M1Device::handleAck(const rpc::Frame & /*frame*/)
             if (m_uploadQueueIndex >= 0) {
                 advanceUploadQueue();
             } else {
+                resumeKeepaliveIfIdle();
                 emit fileUploadComplete();
             }
             return;
@@ -1581,7 +1655,7 @@ void M1Device::handleNack(const rpc::Frame &frame)
     // Bank erase NACK — erase failed
     if (m_bankErasePending) {
         m_bankErasePending = false;
-        m_pingTimer.start(3000);
+        resumeKeepaliveIfIdle();
         qWarning() << "Bank erase failed:" << errMsg;
         emit bankEraseError(errMsg);
         return;
@@ -1601,6 +1675,7 @@ void M1Device::handleNack(const rpc::Frame &frame)
         m_fwUpdateTimeout.stop();
         m_fwUpdateState = FwUpdateState::Idle;
         m_fwUpdateData.clear();
+        resumeKeepaliveIfIdle();
         emit fwUpdateError(errMsg);
         return;
     }
@@ -1611,7 +1686,7 @@ void M1Device::handleNack(const rpc::Frame &frame)
         m_espUpdateTimeout.stop();
         m_espUpdateState = EspUpdateState::Idle;
         m_espUpdateData.clear();
-        m_pingTimer.start(3000);  // Resume polling
+        resumeKeepaliveIfIdle();
         emit espUpdateError(errMsg);
         return;
     }
@@ -1622,6 +1697,7 @@ void M1Device::handleNack(const rpc::Frame &frame)
         m_fileUploadTimeout.stop();
         m_fileUploadState = FileUploadState::Idle;
         m_fileUploadData.clear();
+        resumeKeepaliveIfIdle();
         m_uploadQueue.clear();
         m_uploadQueueIndex = -1;
         m_mkdirQueue.clear();
@@ -1672,6 +1748,7 @@ void M1Device::onTransportConnected(bool connected)
     {
         QString lastPort = m_transport ? m_transport->targetName() : QString();
 
+        m_keepaliveSuspended = false;
         m_pingTimer.stop();
         m_codec.reset();
         m_deviceInfo = DeviceInfo{};
@@ -1718,12 +1795,13 @@ void M1Device::onTransportConnected(bool connected)
                 m_wifiReconnectTimer.start(delay);
             }
         } else if (!m_userDisconnecting && !lastPort.isEmpty()) {
-            // Serial: tell discovery to forget the port so the next scan
-            // re-detects it (handles fast reboots where the COM port reappears
-            // within the 2-second scan window).
+            // A CDC device can remain enumerated while its RPC path is dead.
+            // Retry the known COM name; do not wait for a new discovery edge.
             qInfo() << "Unexpected disconnect on" << lastPort
-                    << "— will auto-reconnect when device reappears";
+                    << "— waiting for USB re-enumeration";
             m_discovery.forgetPort(lastPort);
+            m_serialReconnectAttempts = 0;
+            scheduleSerialReconnect(lastPort, 1500);
         }
         m_userDisconnecting = false;
     }
@@ -1732,10 +1810,53 @@ void M1Device::onTransportConnected(bool connected)
 
 void M1Device::onDeviceFound(const QString &portName)
 {
-    if (m_autoConnect && !isConnected()) {
-        qInfo() << "Auto-connecting to" << portName;
-        connectToDevice(portName);
+    if (!m_autoConnect || isConnected())
+        return;
+
+    // Retain a new COM number if the device genuinely re-enumerates, but let
+    // the pending retry own the open so we do not race the Windows CDC driver.
+    if (m_serialReconnectTimer.isActive() || !m_serialReconnectPort.isEmpty()) {
+        m_serialReconnectPort = portName;
+        return;
     }
+
+    qInfo() << "Auto-connecting to" << portName;
+    if (!connectToDevice(portName)) {
+        m_serialReconnectAttempts = 0;
+        scheduleSerialReconnect(portName, 750);
+    }
+}
+
+void M1Device::scheduleSerialReconnect(const QString &portName, int delayMs)
+{
+    if (!m_autoConnect || isConnected() || portName.isEmpty())
+        return;
+
+    m_serialReconnectPort = portName;
+    if (!m_serialReconnectTimer.isActive())
+        m_serialReconnectTimer.start(qMax(0, delayMs));
+}
+
+void M1Device::trySerialReconnect()
+{
+    if (!m_autoConnect || isConnected() || m_serialReconnectPort.isEmpty())
+        return;
+
+    if (m_serialReconnectAttempts >= SERIAL_RECONNECT_MAX) {
+        qWarning() << "USB reconnect gave up after" << m_serialReconnectAttempts
+                   << "attempts on" << m_serialReconnectPort;
+        m_serialReconnectPort.clear();
+        return;
+    }
+
+    ++m_serialReconnectAttempts;
+    qInfo() << "USB reconnect attempt" << m_serialReconnectAttempts
+            << "on" << m_serialReconnectPort;
+    if (connectToDevice(m_serialReconnectPort))
+        return;
+
+    const int delay = qMin(2000, 500 << qMin(m_serialReconnectAttempts - 1, 2));
+    m_serialReconnectTimer.start(delay);
 }
 
 void M1Device::onDeviceLost(const QString &portName)
