@@ -31,6 +31,9 @@ ToolBar {
     property bool setupPending: false
     signal openSetup()
 
+    // Hand off to qMonstatek Studio (which manages M1OS).
+    signal openStudioApp()
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 12
@@ -260,6 +263,36 @@ ToolBar {
             font.pixelSize: 12
             color: m1device.esp32Ready ? Material.foreground : "#F44336"
             Layout.leftMargin: 12
+        }
+
+        // Hand off to qMonstatek Studio (M1OS). Opens it if installed, otherwise
+        // offers a direct download.
+        Button {
+            text: "Open Studio"
+            flat: true
+            font.bold: true
+            leftPadding: 10
+            rightPadding: 10
+            topPadding: 5
+            bottomPadding: 5
+            Layout.leftMargin: 12
+            contentItem: Label {
+                text: parent.text
+                font: parent.font
+                color: "#3FB86F"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 4
+                color: "transparent"
+                border.width: 1
+                border.color: "#3FB86F"
+            }
+            onClicked: bar.openStudioApp()
+            ToolTip.visible: studioAppHover.hovered
+            ToolTip.text: "Open qMonstatek Studio for an M1OS device"
+            HoverHandler { id: studioAppHover }
         }
 
         // Connect/Disconnect button

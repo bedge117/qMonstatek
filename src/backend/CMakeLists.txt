@@ -25,6 +25,7 @@ add_library(qmonstatek_backend STATIC
     updater/tool_paths.cpp
     updater/dfu_flasher.cpp
     updater/swd_recovery.cpp
+    updater/app_switcher.cpp
 )
 
 target_include_directories(qmonstatek_backend PUBLIC

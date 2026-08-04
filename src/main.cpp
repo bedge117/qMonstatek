@@ -24,6 +24,7 @@
 #include "updater/self_updater.h"
 #include "updater/dfu_flasher.h"
 #include "updater/swd_recovery.h"
+#include "updater/app_switcher.h"
 
 static FILE *s_logFile = nullptr;
 
@@ -102,6 +103,9 @@ int main(int argc, char *argv[])
     githubChecker.setPersistKey("firmware/repoUrl");
     GithubChecker appUpdateChecker;
     appUpdateChecker.setRepoUrl("bedge117/qMonstatek");
+    GithubChecker studioAppChecker;                          // for the "Get Studio" download
+    studioAppChecker.setRepoUrl("bedge117/qmonstatek-studio");
+    AppSwitcher appSwitcher;                                  // hand off to Studio (M1OS)
     GithubChecker esp32Checker;
     esp32Checker.setRepoUrl("bedge117/m1-esp32-brain");   // default before persist load
     esp32Checker.setPersistKey("firmware/espRepoUrl");    // user-selectable in Settings
@@ -121,6 +125,8 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("m1device", &device);
     engine.rootContext()->setContextProperty("githubChecker", &githubChecker);
     engine.rootContext()->setContextProperty("appUpdateChecker", &appUpdateChecker);
+    engine.rootContext()->setContextProperty("studioAppChecker", &studioAppChecker);
+    engine.rootContext()->setContextProperty("appSwitcher", &appSwitcher);
     engine.rootContext()->setContextProperty("esp32Checker", &esp32Checker);
     engine.rootContext()->setContextProperty("selfUpdater", &selfUpdater);
     engine.rootContext()->setContextProperty("dfuFlasher", &dfuFlasher);

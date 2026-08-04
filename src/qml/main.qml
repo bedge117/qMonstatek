@@ -250,6 +250,8 @@ ApplicationWindow {
         setupPending: uiSettings.guidedEspPending && m1device.connected
                       && m1device.hasDeviceInfo && !root.espBrainRunning
         onOpenSetup: guidedEspDialog.open()
+        // Hand off to qMonstatek Studio (M1OS), or offer to download it.
+        onOpenStudioApp: root.openStudioHandoff()
     }
 
     // Screen order in the StackLayout (indices 0-11); used for M1 Back navigation.
@@ -423,6 +425,154 @@ ApplicationWindow {
     // ── Guided ESP install (friendly one-button wizard) ──
     GuidedEspSetup {
         id: guidedEspDialog
+    }
+
+    // ── qMonstatek Studio handoff (M1OS) ──
+    // qMonstatek manages classic C3 firmware; Studio manages M1OS. Open Studio for
+    // an M1OS device, or — if it isn't installed — download it directly.
+    function openStudioHandoff() {
+        studioDialog.status = ""
+        studioDialog.open()
+    }
+    Dialog {
+        id: studioDialog
+        anchors.centerIn: parent
+        width: Math.min((parent ? parent.width : 480) - 80, 460)
+        modal: true
+        title: "Open qMonstatek Studio"
+        standardButtons: Dialog.NoButton
+
+        property string status: ""
+        property string installerUrl: ""
+        property string installerName: ""
+        property string fallbackUrl: ""
+        property int downloadPercent: 0
+        property bool downloading: false
+
+        function findInstallerAsset(assets) {
+            var rawInstaller = null
+            for (var i = 0; i < assets.length; ++i) {
+                var name = assets[i].name.toLowerCase()
+                if (Qt.platform.os === "windows") {
+                    if (name.indexOf("windows") >= 0 && name.endsWith(".zip"))
+                        return assets[i]
+                    if (name.indexOf("_setup") >= 0 && name.endsWith(".zip"))
+                        return assets[i]
+                    if (name.indexOf("_setup") >= 0 && name.endsWith(".exe"))
+                        rawInstaller = assets[i]
+                }
+            }
+            return rawInstaller
+        }
+
+        function findOrDownload() {
+            if (appSwitcher.studioInstalled()) {
+                appSwitcher.launchStudioAndQuit(m1device.connected ? m1device.portName : "")
+                return
+            }
+            if (installerUrl.length > 0) {
+                downloading = true
+                downloadPercent = 0
+                status = "Downloading qMonstatek Studio…"
+                studioAppChecker.downloadAsset(installerUrl,
+                                               selfUpdater.tempDir() + "/" + installerName)
+                return
+            }
+            if (fallbackUrl.length > 0) {
+                Qt.openUrlExternally(fallbackUrl)
+                return
+            }
+            status = "Finding the latest qMonstatek Studio installer…"
+            studioAppChecker.checkForUpdates(0, 0, 0, 0, 0)
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                font.pixelSize: 13
+                text: appSwitcher.studioInstalled()
+                      ? "qMonstatek Studio manages M1OS — the modular \"flash once, add apps\" " +
+                        "firmware. Open Studio to manage " +
+                        (m1device.connected ? "this device on " + m1device.portName : "an M1OS device") + "."
+                      : "qMonstatek Studio manages M1OS — the modular \"flash once, add apps\" " +
+                        "firmware, with an App Catalog. It isn't installed yet — get it to manage M1OS devices."
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: studioDialog.status.length > 0
+                text: studioDialog.status
+                color: studioDialog.status.indexOf("Could not") === 0
+                       || studioDialog.status.indexOf("Unable") === 0
+                       ? "#F44336" : Material.hintTextColor
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+            ProgressBar {
+                visible: studioDialog.downloading
+                Layout.fillWidth: true
+                from: 0; to: 100
+                value: studioDialog.downloadPercent
+            }
+        }
+        footer: DialogButtonBox {
+            Button {
+                text: "Stay in qMonstatek"
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                onClicked: studioDialog.close()
+            }
+            Button {
+                highlighted: true
+                enabled: !studioDialog.downloading && !studioAppChecker.checking
+                text: appSwitcher.studioInstalled() ? "Open qMonstatek Studio"
+                     : (studioDialog.installerUrl.length > 0 ? "Download & Install qMonstatek Studio"
+                        : (studioAppChecker.checking ? "Finding Studio…" : "Get qMonstatek Studio"))
+                onClicked: studioDialog.findOrDownload()
+            }
+        }
+    }
+
+    Connections {
+        target: studioAppChecker
+        function onReleaseFound(info) {
+            var installer = studioDialog.findInstallerAsset(info.assets)
+            studioDialog.fallbackUrl = info.htmlUrl
+            if (installer) {
+                studioDialog.installerUrl = installer.downloadUrl
+                studioDialog.installerName = installer.name
+                studioDialog.status = "qMonstatek Studio " + info.versionFormatted + " is ready to install."
+            } else {
+                studioDialog.status = "An installer was not included in the latest release."
+            }
+        }
+        function onNoUpdateAvailable(message) {
+            studioDialog.status = "No qMonstatek Studio release is currently available."
+        }
+        function onCheckError(message) {
+            studioDialog.status = "Unable to check for qMonstatek Studio: " + message
+        }
+        function onDownloadProgress(percent) {
+            studioDialog.downloadPercent = percent
+        }
+        function onDownloadComplete(path) {
+            studioDialog.downloading = false
+            studioDialog.status = "Starting the qMonstatek Studio installer…"
+            if (!selfUpdater.launchInstallerAndQuit(path))
+                studioDialog.status = "Could not start the qMonstatek Studio installer."
+        }
+        function onDownloadError(message) {
+            studioDialog.downloading = false
+            studioDialog.status = "Unable to download qMonstatek Studio: " + message
+        }
+    }
+
+    Connections {
+        target: appSwitcher
+        function onLaunchError(message) {
+            studioDialog.status = message
+        }
     }
 
     // Auto-jump to Factory Restore when the device comes up on the Restore Host
