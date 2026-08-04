@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <QStandardPaths>
 #include <QDir>
+#include <QCommandLineParser>
 #include <QtQml>
 
 #include "device/m1_device.h"
@@ -65,6 +66,15 @@ int main(int argc, char *argv[])
     app.setOrganizationName("Monstatek");
     app.setApplicationVersion("2.10.1");
 
+    QCommandLineParser commandLine;
+    commandLine.setApplicationDescription("qMonstatek desktop companion");
+    commandLine.addHelpOption();
+    const QCommandLineOption portOption(
+        "port", "Connect to this serial port instead of auto-selecting a device.", "port");
+    commandLine.addOption(portOption);
+    commandLine.process(app);
+    const QString requestedPort = commandLine.value(portOption).trimmed();
+
     // Open log file in temp directory (avoids write permission issues in Program Files)
     QString logPath = QDir::tempPath() + "/qmonstatek.log";
     s_logFile = fopen(logPath.toLocal8Bit().constData(), "w");
@@ -87,6 +97,7 @@ int main(int argc, char *argv[])
 
     // Create backend objects
     M1Device device;
+    device.setPreferredSerialPort(requestedPort);
     GithubChecker githubChecker;
     githubChecker.setPersistKey("firmware/repoUrl");
     GithubChecker appUpdateChecker;

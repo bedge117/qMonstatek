@@ -525,9 +525,9 @@ Item {
                     }
                 }
 
-                // Device-side UART verbosity. OFF keeps the M1 quiet (WARN) so its
-                // UART isn't flooded with m1link/RPC traces; ON raises it to INFO
-                // for a capture. Off by default — normal users never need it.
+                // Device-side verbosity. OFF disables streamed device logs so the
+                // USB control link remains available for normal operation; ON raises
+                // the device to INFO for a focused capture.
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
@@ -544,7 +544,7 @@ Item {
                         Layout.fillWidth: true
                         text: m1device.deviceLogVerbose
                               ? "Device streaming INFO logs — turn off when done"
-                              : "Device quiet (WARN only)"
+                              : "Device log streaming off"
                         font.pixelSize: 11
                         color: m1device.deviceLogVerbose ? "#F44336" : Material.hintTextColor
                     }

@@ -124,13 +124,6 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 ; Clean up log file on uninstall
 Type: files; Name: "{app}\qmonstatek.log"
 
-[Code]
-// Kill running instance before install/upgrade
-function InitializeSetup(): Boolean;
-var
-  ResultCode: Integer;
-begin
-  Result := True;
-  // Attempt to kill any running instance silently
-  Exec('taskkill.exe', '/f /im {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-end;
+; Do not kill by image name here. qMonstatek and qMonstatek Studio deliberately
+; share this executable name while supporting concurrent use with two M1s. The
+; in-app self-updater exits its own process before launching this installer.

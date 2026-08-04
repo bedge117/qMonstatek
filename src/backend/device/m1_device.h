@@ -72,6 +72,9 @@ public:
     Q_INVOKABLE bool connectToDevice(const QString &portName);
     Q_INVOKABLE bool connectToDeviceWifi(const QString &hostPort);
     Q_INVOKABLE void disconnect();
+    // Select a specific USB M1 for auto-connect/reconnect. Used by Studio's
+    // classic-firmware handoff so qMonstatek cannot attach to another M1.
+    void setPreferredSerialPort(const QString &portName);
     bool isConnected() const;
     QString portName() const;
     QString connectionType() const;
@@ -291,6 +294,7 @@ private:
     int      m_screenFps       = 5;
     int      m_screenFrameCount = 0;
     bool     m_autoConnect = true;
+    QString  m_preferredSerialPort;
     bool     m_userDisconnecting = false;
     QTimer   m_pingTimer;
     bool     m_keepaliveSuspended = false;

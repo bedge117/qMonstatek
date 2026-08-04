@@ -180,6 +180,10 @@ bool M1Device::connectToDevice(const QString &portName)
         return false;
     }
 
+    // A deliberate connection (the selector or Studio handoff) becomes the
+    // target to use after a USB reconnect. Discovery will not steal a second
+    // connected M1 from another qMonstatek instance.
+    m_preferredSerialPort = portName;
     m_serialReconnectTimer.stop();
     m_serialReconnectPort.clear();
     m_serialReconnectAttempts = 0;
@@ -312,9 +316,10 @@ void M1Device::setDeviceLogVerbose(bool on)
     m_deviceLogVerbose = on;
     QSettings().setValue(QStringLiteral("logging/deviceVerbose"), on);
 
-    // S_M1_LogDebugLevel_t: WARN = 2 (quiet default), INFO = 3 (verbose capture).
+    // Keep the USB control link free of diagnostic traffic unless the user has
+    // explicitly enabled a capture. INFO = 3; NONE = 0.
     if (isConnected()) {
-        QByteArray p(1, static_cast<char>(on ? 3 : 2));
+        QByteArray p(1, static_cast<char>(on ? 3 : 0));
         sendCommand(rpc::CMD_SET_LOG_LEVEL, p);
     }
     emit deviceLogVerboseChanged(on);
@@ -349,14 +354,27 @@ void M1Device::startSession()
     rpc::resetCrcDialect();
     m_dialectResolved = false;
     sendCommand(rpc::CMD_PING);
-    // The device boots at WARN; if the user wants verbose UART, re-assert it now
-    // so a reconnect/reboot doesn't silently revert the toggle.
-    if (m_deviceLogVerbose) {
-        QByteArray p(1, static_cast<char>(3));   // INFO
-        sendCommand(rpc::CMD_SET_LOG_LEVEL, p);
-    }
+    // Explicitly reassert the normal quiet level after every reconnect. This
+    // prevents buffered diagnostic frames from competing with file/flash ACKs
+    // after a Windows USB idle/resume. INFO is opt-in in Debug Terminal.
+    QByteArray logLevel(1, static_cast<char>(m_deviceLogVerbose ? 3 : 0));
+    sendCommand(rpc::CMD_SET_LOG_LEVEL, logLevel);
     QTimer::singleShot(100, this, &M1Device::requestDeviceInfo);
     m_pingTimer.start(3000);
+}
+
+void M1Device::setPreferredSerialPort(const QString &portName)
+{
+    m_preferredSerialPort = portName.trimmed();
+    if (m_preferredSerialPort.isEmpty() || isConnected())
+        return;
+
+    // Studio starts qMonstatek before it exits, so Windows can briefly retain
+    // the requested COM handle. Seed the normal bounded reconnect path instead
+    // of relying on a single startup open or a new discovery edge.
+    m_serialReconnectAttempts = 0;
+    m_serialReconnectPort = m_preferredSerialPort;
+    QTimer::singleShot(0, this, &M1Device::trySerialReconnect);
 }
 
 void M1Device::suspendKeepalive()
@@ -1811,6 +1829,9 @@ void M1Device::onTransportConnected(bool connected)
 void M1Device::onDeviceFound(const QString &portName)
 {
     if (!m_autoConnect || isConnected())
+        return;
+
+    if (!m_preferredSerialPort.isEmpty() && portName != m_preferredSerialPort)
         return;
 
     // Retain a new COM number if the device genuinely re-enumerates, but let
