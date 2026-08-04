@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("qMonstatek");
     app.setOrganizationName("Monstatek");
-    app.setApplicationVersion("2.10.1");
+    app.setApplicationVersion("2.10.2");
 
     QCommandLineParser commandLine;
     commandLine.setApplicationDescription("qMonstatek desktop companion");
